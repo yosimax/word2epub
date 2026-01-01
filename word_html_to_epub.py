@@ -35,9 +35,7 @@ def main():
         input_dir = os.path.dirname(os.path.abspath(input_html))
         candidates = [
             os.path.join(input_dir, "metadata.yaml"),
-            os.path.join(input_dir, "metadata.md"),
             os.path.join(os.getcwd(), "metadata.yaml"),
-            os.path.join(os.getcwd(), "metadata.md"),
         ]
         for p in candidates:
             if os.path.exists(p):
