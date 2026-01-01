@@ -48,6 +48,12 @@ def main():
     else:
         print("Using metadata:", metadata_path)
         meta = load_metadata(metadata_path)
+        # remember metadata file directory so image paths in metadata
+        # can be resolved relative to the metadata file
+        import os
+
+        meta_dir = os.path.dirname(os.path.abspath(metadata_path))
+        meta["_meta_dir"] = meta_dir
     if meta:
         print("Detected encoding:", detect_encoding(input_html)[0])
         print("Metadata loaded:", meta)

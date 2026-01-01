@@ -29,9 +29,17 @@ def create_epub(output_path, chapter_files, toc_xhtml, opf_content, style_css, i
         for fname, xhtml in image_pages:
             zf.writestr(f"OEBPS/{fname}", xhtml)
 
+        meta_dir = meta.get("_meta_dir")
         for img in meta.get("images", []):
-            img_path = os.path.normpath(img["file"])
+            # Resolve image path relative to metadata directory when provided
+            img_rel = img.get("file")
+            if meta_dir:
+                img_path = os.path.normpath(os.path.join(meta_dir, img_rel))
+            else:
+                img_path = os.path.normpath(img_rel)
+
             if not os.path.exists(img_path):
-                print("Warning: image file not found, skipping:", img.get("file"))
+                print("Warning: image file not found, skipping:", img_rel)
                 continue
+
             zf.write(img_path, f"OEBPS/{os.path.basename(img_path)}")
