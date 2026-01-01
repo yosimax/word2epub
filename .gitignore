@@ -6,3 +6,4 @@ dist/
 build/
 out.epub
 __pycache__
+noshared
