@@ -7,3 +7,4 @@ build/
 out.epub
 __pycache__
 noshared
+book-template

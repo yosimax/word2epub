@@ -3,7 +3,7 @@ import yaml
 
 
 def load_metadata(metadata_path):
-    """Load metadata from a YAML/Markdown-like file.
+    """Load metadata from a YAML file.
 
     Returns a dict with keys: title, author, ppd (page-progression-direction), images
     """
