@@ -1,4 +1,4 @@
-# md2epub.py 仕様、概要
+# yaml2epub.py 仕様、概要
 
 * TEMPLATE配下にあるEPUB3のサンプルbook-templateをベースに中身を書き換えることで日本語、縦書き、リフロー、右開き対応のEPUB3（zip）ファイルを作成する。
 * 以下の内容を、metadata.yamlに記載して、このファイルを読み込む
