@@ -6,7 +6,6 @@
   python yaml2epub.py metadata.yaml out.epub
 
 このスクリプトは `TEMPLATE/book-template` を元にして EPUB を作成します。
-現在は本文を `p-001.xhtml`〜`p-005.xhtml` のテンプレートに最大5章まで埋め込む簡易実装です。
 """
 from __future__ import annotations
 
@@ -217,7 +216,12 @@ def insert_advertisement(xhtml_dir: str, adv_spec: dict | None, meta_dir: str, m
     text = adv_spec.get('text') if isinstance(adv_spec, dict) else adv_spec
     tpl = os.path.join(xhtml_dir, 'p-ad-001.xhtml')
     if text == 'NONE':
-        # keep template as-is
+        # remove p-ad-001.xhtml entirely (do not create/include advertisement page)
+        try:
+            if os.path.exists(tpl):
+                os.remove(tpl)
+        except Exception:
+            pass
         return
     body_html = ''
     if text:

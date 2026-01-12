@@ -14,6 +14,14 @@ creator02: Author02
   # 指定されていないときは、要素/タグごと削除
 publisher: 出版社
   # 指定されていないときは、要素/タグごと削除
+version: 版数を記載
+created_at: NOW_YMD
+# NOW_YMDと記載していたら現在の年月日（西暦4桁年月日で置き換える）
+copyright: |
+  © 2026 本来は著者名を記載します。が、これはサンプルです。    
+special_thanks: |
+  謝辞
+  　一般社団法人デジタル出版者連盟様のガイドラインを参考にさせていただきました。
 image:
   cover: coverの画像ファイル
     # 指定されていないときは、タグごと削除
@@ -24,15 +32,9 @@ caution: 著作権の注意事項など
   # 指定されていないときは、p-caution.xhtmlごと削除(作成しない)
 colophon:
   text: colophonの内容を記載したファイル
-  version: 版数を記載
-  created_at: NOW_YMD
-  # NOW_YMDと記載していたら現在の年月日（西暦4桁年月日で置き換える）
-  copyright: |
-    © 2026 本来は著者名を記載します。が、これはサンプルです。    
-  special_thanks:
 advatizement:
   text: NONE
-  # NONEと記載していたらp-ad-001.xhtml
+  # NONEと記載していたらp-ad-001.xhtmlごと削除(作成しない)
 documents:
   frontmatter:
     # 指定されていないときは、p-fmatter-<index>.xhtmlごと削除(作成しない)
