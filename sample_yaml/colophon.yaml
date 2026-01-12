@@ -1,15 +1,15 @@
 Title: |
   {{ book_title }}
-  {{ ' - ' + series_title if series_title else '' }}
+  {{ ' - ' + series_title + ' - ' if series_title else '' }}
 Authors: |
-  著者名ー {{ creator01 }}
-  　　　－ {% if creator02 %}{{ creator02 }}{% endif %}
+  著者名 {{ creator01 }}
+  　　　 {% if creator02 %}{{ creator02 }}{% endif %}
 Publisher: |
-  発行者ー {{ publisher }}
+  発行者 {{ publisher }}
 Copyright: |
   {{ copyright }}
-CreateDate: 作成日ー {{ created_at }} 
-Version: 作成版ー {{ version }} 版
+CreateDate: 作成日 {{ created_at }} 
+Version: 作成版 {{ version }} 版
 SpecialThanks: |
   {% if special_thanks %}
   {{ special_thanks | replace('\n', '\n  ') }}

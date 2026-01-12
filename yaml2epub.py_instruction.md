@@ -25,10 +25,14 @@ caution: 著作権の注意事項など
 colophon:
   text: colophonの内容を記載したファイル
   version: 版数を記載
-  created_at: NOW_YMDと記載していたら現在の年月日（西暦4桁年月日で置き換える）
+  created_at: NOW_YMD
+  # NOW_YMDと記載していたら現在の年月日（西暦4桁年月日で置き換える）
   copyright: |
     © 2026 本来は著者名を記載します。が、これはサンプルです。    
   special_thanks:
+advatizement:
+  text: NONE
+  # NONEと記載していたらp-ad-001.xhtml
 documents:
   frontmatter:
     # 指定されていないときは、p-fmatter-<index>.xhtmlごと削除(作成しない)
@@ -41,8 +45,7 @@ documents:
     - chapter: 2章のファイル
 ```
 
-
-TEMPLATE配下は以下
+* TEMPLATE配下は以下
 ```
 +---TEMPLATE
 |   |
@@ -73,31 +76,32 @@ TEMPLATE配下は以下
 |       |           p-titlepage.xhtml     : 3.本扉
 |       |           p-caution.xhtml       : 4.注意書き
 |       |           p-toc.xhtml           : 5.目次見出し
-|       |           p-001.xhtml           : 本文
-|       |           p-002.xhtml           : 本文
-|       |           p-003.xhtml           : 本文
-|       |           p-004.xhtml           : 本文
-|       |           p-005.xhtml           : 本文
-|       |           p-colophon.xhtml      : 奥付
-|       |           p-ad-001.xhtml        : 広告
+|       |           p-001.xhtml           : 6.本文
+|       |           p-002.xhtml           : 6.本文
+|       |           p-003.xhtml           : 6.本文
+|       |           p-004.xhtml           : 6.本文
+|       |           p-005.xhtml           : 6.本文
+|       |           p-colophon.xhtml      : 7.奥付
+|       |           p-ad-001.xhtml        : 8.広告
 |       |
 |       \---META-INF
 |               container.xml
 ```
 
-
-出力するページの順序は、standard.opf に従って以下のように生成する。
+* 出力するページの順序は、standard.opf に従って以下のように生成する。
 ```
 p-cover.xhtml         : 1.表紙
 p-fmatter-001.xhtml   : 2.frontmatter
 p-titlepage.xhtml     : 3.本扉
 p-caution.xhtml       : 4.注意書き
 p-toc.xhtml           : 5.目次見出し
-p-001.xhtml           : 本文
-p-002.xhtml           : 本文
-p-003.xhtml           : 本文
-p-004.xhtml           : 本文
-p-005.xhtml           : 本文
-p-colophon.xhtml      : 奥付
-p-ad-001.xhtml        : 広告
+p-001.xhtml           : 6.本文
+p-002.xhtml           : 6.本文
+本文はchapterの数だけ繰り返し
+p-colophon.xhtml      : 7.奥付
+p-ad-001.xhtml        : 8.広告
+p-backcover.xhtml     : 9.表紙
 ```
+
+* プログラムについて
+  * pythonスクリプトは適宜lib化して保守性が良くなるようなプログラム構造としてください。
