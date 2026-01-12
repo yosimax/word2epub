@@ -1,0 +1,29 @@
+book_title: yaml2epubのサンプル
+series_title: EPUB3を作成
+creator01: Author01
+creator02: Author02
+publisher: 私家版
+version: 1.0
+created_at: NOW_YMD
+copyright: |
+  © 2026 本来は著者名を記載します。が、これはサンプルです。    
+special_thanks: |
+  謝辞
+  　一般社団法人デジタル出版者連盟様のガイドラインを参考にさせていただきました。
+image:
+  cover: cover.png
+  backcover: back_cover.png
+caution: このEPUBファイルは、私家本として作成したもので配布流通を目的としていません。
+colophon:
+  text: colophon.yaml
+advatizement:
+  text: NONE
+documents:
+  frontmatter:
+    text: frontmatter.yaml
+    image: sample_textmap.jpg
+  contents:
+    - chapter: synopsis.yaml
+    - chapter: chapter001.yaml
+    - chapter: chapter002.yaml
+    - chapter: chapter003.yaml

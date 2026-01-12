@@ -1,0 +1,24 @@
+direction: Horizontal
+contents: |
+  このサンプルは、英語の小説を私家版翻訳した日本語版を縦書きで作成するために作成したものです。
+  はじめは、word文書をhtml（フィルター済み）で保存して作成したhtmlファイルをEPUB3に変換するスクリプトをAI Agentで作成してみた。
+  とりあえず、Sigil（Windows版）やiOSのブックアプリで読めるようにはなったが、仕様にいまいち準拠できていない感じなので、以下のガイドラインを参考にしてみることにした。
+  以下のガイドラインでダウンロードできる「表示確認用サンプルファイル（.zip）」を参考にスクリプトを作成しなおしてみることにした。
+  電書連 EPUB 3 制作ガイド | デジタル出版者連盟（旧・日本電子書籍出版社協会）（ https://dpfj.or.jp/counsel/guide ）
+  「表示確認用サンプルファイル（.zip）」の中にある、book-template\_2025-09-11.epubをunzipして、word2epub\\TEMPLATE配下に配置しておくことにしてみる。
+  
+  word2epub
+  ├─.git
+  ├─.github
+  ├─sample
+  ├─TEMPLATE
+  │  └─book-template
+  │      ├─item
+  │      │  ├─image
+  │      │  ├─style
+  │      │  └─xhtml
+  │      └─META-INF
+  └─word2epub
+
+  このテンプレートを任意の内容に置き換えていくyaml2epubを考えてみることにした。
+
