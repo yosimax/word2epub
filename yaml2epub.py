@@ -1,6 +1,6 @@
 """yaml2epub.py
 
-シンプルな YAML -> EPUB 変換スクリプト。
+シンプルな YAML -> EPUB3 変換スクリプト。
 
 使い方:
   python yaml2epub.py metadata.yaml out.epub
@@ -245,6 +245,37 @@ def insert_advertisement(xhtml_dir: str, adv_spec: dict | None, meta_dir: str, m
         return
 
     template = read_text_file(tpl) if os.path.exists(tpl) else None
+    if template and '<body' in template:
+        start = template.find('>', template.find('<body')) + 1
+        end = template.rfind('</body>')
+        new = template[:start] + '\n' + body_html + '\n' + template[end:]
+        write_text_file(tpl, new)
+    else:
+        write_text_file(tpl, f"<html><body>{body_html}</body></html>")
+
+
+def insert_titlepage(xhtml_dir: str, meta: dict | None) -> None:
+    """Create/replace p-titlepage.xhtml body using metadata `book_title` and `series_title`.
+
+    Both titles are placed on separate lines, centered vertically and horizontally,
+    with larger font sizes and horizontal writing mode.
+    """
+    if not meta:
+        return
+    book_title = meta.get('book_title') or meta.get('title') or ''
+    series_title = meta.get('series_title') or ''
+
+    tpl = os.path.join(xhtml_dir, 'p-titlepage.xhtml')
+    template = read_text_file(tpl) if os.path.exists(tpl) else None
+
+    # build centered two-line layout
+    body_html = '<div class="titlepage" style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;text-align:center;writing-mode:horizontal-tb;">'
+    if book_title:
+        body_html += f"<h1 class=\"book-title\" style=\"font-size:48px;margin:0;\">{book_title}</h1>"
+    if series_title:
+        body_html += f"<h2 class=\"series-title\" style=\"font-size:32px;margin:0;margin-top:0.5em;\">{series_title}</h2>"
+    body_html += '</div>'
+
     if template and '<body' in template:
         start = template.find('>', template.find('<body')) + 1
         end = template.rfind('</body>')
@@ -670,6 +701,11 @@ def main(argv: list[str]) -> int:
     # replace title in xhtml templates (support book_title key)
     title = meta.get("title") or meta.get("book_title", "作品名未設定")
     replace_title_in_xhtml(tmpdir, title)
+    # generate title page body from metadata (book_title and series_title)
+    try:
+        insert_titlepage(os.path.join(tmpdir, 'item', 'xhtml'), meta)
+    except Exception:
+        pass
 
     # create back cover xhtml by copying p-cover.xhtml -> p-backcover.xhtml (if present)
     xhtml_dir = os.path.join(tmpdir, 'item', 'xhtml')
