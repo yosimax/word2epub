@@ -16,7 +16,7 @@ image:
 caution: このEPUBファイルは、私家本として作成したもので配布流通を目的としていません。
 colophon:
   text: colophon.yaml
-advatizement:
+advertisement:
   text: NONE
 documents:
   frontmatter:

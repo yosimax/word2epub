@@ -32,7 +32,7 @@ caution: 著作権の注意事項など
   # 指定されていないときは、p-caution.xhtmlごと削除(作成しない)
 colophon:
   text: colophonの内容を記載したファイル
-advatizement:
+advertisement:
   text: NONE
   # NONEと記載していたらp-ad-001.xhtmlごと削除(作成しない)
 documents:

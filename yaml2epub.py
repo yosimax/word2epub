@@ -773,7 +773,7 @@ def main(argv: list[str]) -> int:
     insert_frontmatter(os.path.join(tmpdir, 'item', 'xhtml'), front, meta_dir, os.path.join(tmpdir, 'item', 'image'))
     insert_caution(os.path.join(tmpdir, 'item', 'xhtml'), meta.get('caution'))
     insert_colophon(os.path.join(tmpdir, 'item', 'xhtml'), meta.get('colophon'), meta_dir, meta)
-    insert_advertisement(os.path.join(tmpdir, 'item', 'xhtml'), meta.get('advatizement'), meta_dir, meta)
+    insert_advertisement(os.path.join(tmpdir, 'item', 'xhtml'), meta.get('advertisement'), meta_dir, meta)
 
 
     # inject chapters (support arbitrary number)
