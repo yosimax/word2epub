@@ -53,11 +53,64 @@ def replace_title_in_xhtml(dirpath: str, title: str) -> None:
         write_text_file(p, s)
 
 
+def _apply_body_template(template: str | None, body_html: str, body_class: str | None, direction: str | None) -> str:
+    """テンプレートの <body ...> 開始タグに class/style を付与し、body 内に body_html を挿入して返す。
+    body_class が None の場合はデフォルトで 'p-text' を付与する。
+    direction は 'Vertical' などの文字列を想定し、先頭文字で縦横を判別する（'v'/'V' -> 縦書き）。
+    """
+    # build style string from direction
+    style_value = ""
+    if direction:
+        if direction.lower().startswith("v"):
+            style_value = "writing-mode: vertical-rl; -epub-writing-mode: vertical-rl;"
+        else:
+            style_value = "writing-mode: horizontal-tb; -epub-writing-mode: horizontal-tb;"
+
+    cls = body_class or "p-text"
+
+    if not template or "<body" not in template:
+        # fallback simple html
+        style_attr = f' style="{style_value}"' if style_value else ""
+        return f"<html><head></head><body class=\"{cls}\"{style_attr}>\n{body_html}\n</body></html>"
+
+    idx = template.find("<body")
+    gt = template.find(">", idx)
+    if gt == -1:
+        # malformed, fallback
+        style_attr = f' style="{style_value}"' if style_value else ""
+        return f"<html><head></head><body class=\"{cls}\"{style_attr}>\n{body_html}\n</body></html>"
+
+    opening = template[idx:gt+1]
+    new_opening = opening
+
+    # replace class attribute with cls
+    if 'class="' in new_opening:
+        new_opening = re.sub(r'class="([^"]*)"', f'class="{cls}"', new_opening)
+    else:
+        # insert class before closing '>'
+        new_opening = new_opening[:-1] + f' class="{cls}">'
+
+    # ensure style includes style_value
+    if style_value:
+        if 'style="' in new_opening:
+            new_opening = re.sub(r'style="([^"]*)"', lambda m: f'style="{m.group(1)} {style_value}"', new_opening)
+        else:
+            new_opening = new_opening[:-1] + f' style="{style_value}">'
+
+    # rebuild template with modified opening tag
+    new_template = template[:idx] + new_opening + template[gt+1:]
+    start = new_template.find(">", new_template.find("<body")) + 1
+    end = new_template.rfind("</body>")
+    if start == -1 or end == -1:
+        return new_template
+    return new_template[:start] + "\n" + body_html + "\n" + new_template[end:]
+
+
 def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str) -> None:
     if not spec:
         return
-    text = spec.get('text') if isinstance(spec, dict) else spec
-    image = spec.get('image') if isinstance(spec, dict) else None
+    text = spec.get("text") if isinstance(spec, dict) else spec
+    image = spec.get("image") if isinstance(spec, dict) else None
 
     # resolve paths
     text_path = None
@@ -65,90 +118,110 @@ def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_d
         text_path = text if os.path.isabs(text) else os.path.join(meta_dir, text)
 
     # prepare body
-    body_html = ''
-    label = 'frontmatter'
+    body_html = ""
+    label = "frontmatter"
+    # default direction/body_class from spec (if provided)
+    spec_direction = spec.get("direction") if isinstance(spec, dict) else None
+    spec_body_class = spec.get("body_class") if isinstance(spec, dict) else None
+    direction = None
+    body_class = None
+
     if text_path and os.path.exists(text_path):
-        if text_path.lower().endswith(('.yaml', '.yml')):
-            with open(text_path, 'r', encoding='utf-8') as f:
+        if text_path.lower().endswith((".yaml", ".yml")):
+            with open(text_path, "r", encoding="utf-8") as f:
                 try:
                     data = yaml.safe_load(f) or {}
                 except Exception:
                     data = {}
-            contents = data.get('contents', '')
-            paras = [p.strip() for p in contents.split('\n\n') if p.strip()]
-            body_html = '\n'.join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras)
-            if 'page_title' in data:
+            # allow YAML to override direction/body_class
+            direction = data.get("direction") or spec_direction
+            body_class = data.get("body_class") or spec_body_class
+            contents = data.get("contents", "")
+            paras = [p.strip() for p in contents.split("\n\n") if p.strip()]
+            body_html = "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras)
+            if "page_title" in data:
                 body_html = f"<p class=\"tobira-midashi\">{data['page_title']}</p>\n" + body_html
-                label = data.get('page_title')
-        elif text_path.lower().endswith(('.html', '.xhtml', '.htm')):
+                label = data.get("page_title")
+        elif text_path.lower().endswith((".html", ".xhtml", ".htm")):
             body_html = read_text_file(text_path)
             label = os.path.splitext(os.path.basename(text_path))[0]
+            # no YAML parsing, fall back to spec-provided direction/body_class
+            direction = spec_direction
+            body_class = spec_body_class
         else:
             txt = read_text_file(text_path)
-            paras = [ln.strip() for ln in txt.split('\n\n') if ln.strip()]
-            body_html = '\n'.join(f"<p>{p}</p>" for p in paras)
+            paras = [ln.strip() for ln in txt.split("\n\n") if ln.strip()]
+            body_html = "\n".join(f"<p>{p}</p>" for p in paras)
             label = os.path.splitext(os.path.basename(text_path))[0]
+            direction = spec_direction
+            body_class = spec_body_class
+    else:
+        direction = spec_direction
+        body_class = spec_body_class
+
     # add image if present
     if image:
         img_path = image if os.path.isabs(image) else os.path.join(meta_dir, image)
         if os.path.exists(img_path):
             shutil.copy2(img_path, os.path.join(image_dir, os.path.basename(img_path)))
             img_tag = f'<p><img class="fit" src="../image/{os.path.basename(img_path)}" alt=""/></p>'
-            body_html = img_tag + '\n' + body_html
+            body_html = img_tag + "\n" + body_html
 
     # write into p-fmatter-001.xhtml using template
-    tpl = os.path.join(xhtml_dir, 'p-fmatter-001.xhtml')
-    target = os.path.join(xhtml_dir, 'p-fmatter-001.xhtml')
+    tpl = os.path.join(xhtml_dir, "p-fmatter-001.xhtml")
+    target = os.path.join(xhtml_dir, "p-fmatter-001.xhtml")
     template = read_text_file(tpl) if os.path.exists(tpl) else None
-    if template and '<body' in template:
-        start = template.find('>', template.find('<body')) + 1
-        end = template.rfind('</body>')
-        new = template[:start] + '\n' + body_html + '\n' + template[end:]
+    if template:
+        new = _apply_body_template(template, body_html, body_class, direction)
         write_text_file(target, new)
     else:
-        write_text_file(target, f"<html><body>{body_html}</body></html>")
+        # fallback simple html
+        new = _apply_body_template(None, body_html, body_class, direction)
+        write_text_file(target, new)
 
 
 def insert_caution(xhtml_dir: str, caution_text: str) -> None:
     if not caution_text:
         return
-    tpl = os.path.join(xhtml_dir, 'p-caution.xhtml')
+    tpl = os.path.join(xhtml_dir, "p-caution.xhtml")
     template = read_text_file(tpl) if os.path.exists(tpl) else None
     body_html = f"<p>{caution_text}</p>"
-    if template and '<body' in template:
-        start = template.find('>', template.find('<body')) + 1
-        end = template.rfind('</body>')
-        new = template[:start] + '\n' + body_html + '\n' + template[end:]
+    # default: p-text, no direction
+    if template:
+        new = _apply_body_template(template, body_html, None, None)
         write_text_file(tpl, new)
     else:
-        write_text_file(tpl, f"<html><body>{body_html}</body></html>")
+        new = _apply_body_template(None, body_html, None, None)
+        write_text_file(tpl, new)
 
 
 def insert_colophon(xhtml_dir: str, colophon_spec: dict | None, meta_dir: str, meta: dict | None = None) -> None:
     if not colophon_spec:
         return
-    text = colophon_spec.get('text') if isinstance(colophon_spec, dict) else None
+    text = colophon_spec.get("text") if isinstance(colophon_spec, dict) else None
     text_path = None
     if text:
         text_path = text if os.path.isabs(text) else os.path.join(meta_dir, text)
 
-    body_html = ''
+    body_html = ""
+    direction = None
+    body_class = None
     if text_path and os.path.exists(text_path):
-        if text_path.lower().endswith(('.yaml', '.yml')):
+        if text_path.lower().endswith((".yaml", ".yml")):
             # read and render template (Jinja2 if available)
-            with open(text_path, 'r', encoding='utf-8') as f:
+            with open(text_path, "r", encoding="utf-8") as f:
                 raw = f.read()
             rendered = None
             # build render context: top-level meta keys + colophon keys (flattened)
             render_context = {}
             if isinstance(meta, dict):
                 render_context.update(meta)
-                c = meta.get('colophon')
+                c = meta.get("colophon")
                 if isinstance(c, dict):
                     render_context.update(c)
             # expand NOW_YMD to current date if present
-            if render_context.get('created_at') == 'NOW_YMD':
-                render_context['created_at'] = datetime.now().strftime('%Y-%m-%d')
+            if render_context.get("created_at") == "NOW_YMD":
+                render_context["created_at"] = datetime.now().strftime("%Y-%m-%d")
             try:
                 from jinja2 import Environment
 
@@ -159,13 +232,17 @@ def insert_colophon(xhtml_dir: str, colophon_spec: dict | None, meta_dir: str, m
                 rendered = raw
                 try:
                     for k, v in (render_context.items() if isinstance(render_context, dict) else []):
-                        rendered = rendered.replace('{{ ' + k + ' }}', str(v))
+                        rendered = rendered.replace("{{ " + k + " }}", str(v))
                 except Exception:
                     pass
             try:
                 data = yaml.safe_load(rendered) or {}
             except Exception:
                 data = {}
+
+            # get direction/body_class from YAML if present
+            direction = data.get("direction")
+            body_class = data.get("body_class")
 
             # preserve YAML key order when building HTML
             parts = []
@@ -175,20 +252,20 @@ def insert_colophon(xhtml_dir: str, colophon_spec: dict | None, meta_dir: str, m
                 s = str(v).strip()
                 if not s:
                     continue
-                paras = [p.strip() for p in s.split('\n\n') if p.strip()]
+                paras = [p.strip() for p in s.split("\n\n") if p.strip()]
                 for p in paras:
                     parts.append(f"<p>{p.replace('\n', '<br/>')}</p>")
-            body_html = '\n'.join(parts)
+            body_html = "\n".join(parts)
         else:
             body_html = read_text_file(text_path)
 
     # add version/created_at/copyright if present in spec but not included above
     extras = []
-    version = colophon_spec.get('version') if isinstance(colophon_spec, dict) else None
-    created_at = colophon_spec.get('created_at') if isinstance(colophon_spec, dict) else None
-    copyright_text = colophon_spec.get('copyright') if isinstance(colophon_spec, dict) else None
-    if created_at == 'NOW_YMD':
-        created_at = datetime.now().strftime('%Y-%m-%d')
+    version = colophon_spec.get("version") if isinstance(colophon_spec, dict) else None
+    created_at = colophon_spec.get("created_at") if isinstance(colophon_spec, dict) else None
+    copyright_text = colophon_spec.get("copyright") if isinstance(colophon_spec, dict) else None
+    if created_at == "NOW_YMD":
+        created_at = datetime.now().strftime("%Y-%m-%d")
     if not body_html:
         if version:
             extras.append(f"版数: {version}")
@@ -197,25 +274,30 @@ def insert_colophon(xhtml_dir: str, colophon_spec: dict | None, meta_dir: str, m
         if copyright_text:
             extras.append(copyright_text)
         if extras:
-            body_html = body_html + '\n' + '\n'.join(f"<p>{e}</p>" for e in extras)
+            body_html = body_html + "\n" + "\n".join(f"<p>{e}</p>" for e in extras)
 
-    tpl = os.path.join(xhtml_dir, 'p-colophon.xhtml')
+    # allow override from colophon_spec if not in YAML
+    if not direction and isinstance(colophon_spec, dict):
+        direction = colophon_spec.get("direction")
+    if not body_class and isinstance(colophon_spec, dict):
+        body_class = colophon_spec.get("body_class")
+
+    tpl = os.path.join(xhtml_dir, "p-colophon.xhtml")
     template = read_text_file(tpl) if os.path.exists(tpl) else None
-    if template and '<body' in template:
-        start = template.find('>', template.find('<body')) + 1
-        end = template.rfind('</body>')
-        new = template[:start] + '\n' + body_html + '\n' + template[end:]
+    if template:
+        new = _apply_body_template(template, body_html, body_class, direction)
         write_text_file(tpl, new)
     else:
-        write_text_file(tpl, f"<html><body>{body_html}</body></html>")
+        new = _apply_body_template(None, body_html, body_class, direction)
+        write_text_file(tpl, new)
 
 
 def insert_advertisement(xhtml_dir: str, adv_spec: dict | None, meta_dir: str, meta: dict | None = None) -> None:
     if not adv_spec:
         return
-    text = adv_spec.get('text') if isinstance(adv_spec, dict) else adv_spec
-    tpl = os.path.join(xhtml_dir, 'p-ad-001.xhtml')
-    if text == 'NONE':
+    text = adv_spec.get("text") if isinstance(adv_spec, dict) else adv_spec
+    tpl = os.path.join(xhtml_dir, "p-ad-001.xhtml")
+    if text == "NONE":
         # remove p-ad-001.xhtml entirely (do not create/include advertisement page)
         try:
             if os.path.exists(tpl):
@@ -223,35 +305,45 @@ def insert_advertisement(xhtml_dir: str, adv_spec: dict | None, meta_dir: str, m
         except Exception:
             pass
         return
-    body_html = ''
+    body_html = ""
+    direction = None
+    body_class = None
     if text:
         text_path = text if os.path.isabs(text) else os.path.join(meta_dir, text)
         if os.path.exists(text_path):
-            if text_path.lower().endswith(('.yaml', '.yml')):
-                with open(text_path, 'r', encoding='utf-8') as f:
+            if text_path.lower().endswith((".yaml", ".yml")):
+                with open(text_path, "r", encoding="utf-8") as f:
                     try:
                         data = yaml.safe_load(f) or {}
                     except Exception:
                         data = {}
-                contents = data.get('contents') or data.get('text') or ''
+                # allow direction/body_class in advertisement yaml
+                direction = data.get("direction")
+                body_class = data.get("body_class")
+                contents = data.get("contents") or data.get("text") or ""
                 if isinstance(contents, list):
-                    contents = '\n\n'.join(contents)
-                paras = [p.strip() for p in str(contents).split('\n\n') if p.strip()]
-                body_html = '\n'.join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras)
+                    contents = "\n\n".join(contents)
+                paras = [p.strip() for p in str(contents).split("\n\n") if p.strip()]
+                body_html = "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras)
             else:
                 body_html = read_text_file(text_path)
 
     if not body_html:
         return
 
+    # allow override from adv_spec
+    if not direction and isinstance(adv_spec, dict):
+        direction = adv_spec.get("direction")
+    if not body_class and isinstance(adv_spec, dict):
+        body_class = adv_spec.get("body_class")
+
     template = read_text_file(tpl) if os.path.exists(tpl) else None
-    if template and '<body' in template:
-        start = template.find('>', template.find('<body')) + 1
-        end = template.rfind('</body>')
-        new = template[:start] + '\n' + body_html + '\n' + template[end:]
+    if template:
+        new = _apply_body_template(template, body_html, body_class, direction)
         write_text_file(tpl, new)
     else:
-        write_text_file(tpl, f"<html><body>{body_html}</body></html>")
+        new = _apply_body_template(None, body_html, body_class, direction)
+        write_text_file(tpl, new)
 
 
 def insert_titlepage(xhtml_dir: str, meta: dict | None) -> None:
@@ -262,10 +354,10 @@ def insert_titlepage(xhtml_dir: str, meta: dict | None) -> None:
     """
     if not meta:
         return
-    book_title = meta.get('book_title') or meta.get('title') or ''
-    series_title = meta.get('series_title') or ''
+    book_title = meta.get("book_title") or meta.get("title") or ""
+    series_title = meta.get("series_title") or ""
 
-    tpl = os.path.join(xhtml_dir, 'p-titlepage.xhtml')
+    tpl = os.path.join(xhtml_dir, "p-titlepage.xhtml")
     template = read_text_file(tpl) if os.path.exists(tpl) else None
 
     # build centered two-line layout
@@ -274,26 +366,29 @@ def insert_titlepage(xhtml_dir: str, meta: dict | None) -> None:
         body_html += f"<h1 class=\"book-title\" style=\"font-size:48px;margin:0;\">{book_title}</h1>"
     if series_title:
         body_html += f"<h2 class=\"series-title\" style=\"font-size:32px;margin:0;margin-top:0.5em;\">{series_title}</h2>"
-    body_html += '</div>'
+    body_html += "</div>"
 
-    if template and '<body' in template:
-        start = template.find('>', template.find('<body')) + 1
-        end = template.rfind('</body>')
-        new = template[:start] + '\n' + body_html + '\n' + template[end:]
+    # allow meta-level overrides
+    direction = meta.get("direction") if isinstance(meta, dict) else None
+    body_class = meta.get("body_class") if isinstance(meta, dict) else None
+
+    if template:
+        new = _apply_body_template(template, body_html, body_class, direction)
         write_text_file(tpl, new)
     else:
-        write_text_file(tpl, f"<html><body>{body_html}</body></html>")
+        new = _apply_body_template(None, body_html, body_class, direction)
+        write_text_file(tpl, new)
 
 
 def _replace_title_in_string(s: str, title: str) -> str:
     """Replace first <title>...</title> occurrence with provided title."""
-    idx = s.find('<title')
+    idx = s.find("<title")
     if idx == -1:
         return s
-    gt = s.find('>', idx)
+    gt = s.find(">", idx)
     if gt == -1:
         return s
-    end = s.find('</title>', gt)
+    end = s.find("</title>", gt)
     if end == -1:
         return s
     return s[: gt + 1] + title + s[end:]
@@ -317,43 +412,55 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str]) -> list[dict]:
 
         label = filename
         body_html = ""
+        direction = None
+        body_class = None
 
         if os.path.exists(chap):
-            if chap.lower().endswith(('.yaml', '.yml')):
-                with open(chap, 'r', encoding='utf-8') as f:
+            if chap.lower().endswith((".yaml", ".yml")):
+                with open(chap, "r", encoding="utf-8") as f:
                     try:
                         data = yaml.safe_load(f) or {}
                     except Exception:
                         data = {}
-                label = data.get('page_title', os.path.splitext(os.path.basename(chap))[0])
-                contents = data.get('contents', '')
+                label = data.get("page_title", os.path.splitext(os.path.basename(chap))[0])
+                contents = data.get("contents", "")
+                # capture direction/body_class from chapter YAML
+                direction = data.get("direction")
+                body_class = data.get("body_class")
                 # split into paragraphs by blank lines
-                paras = [p.strip() for p in contents.split('\n\n') if p.strip()]
-                body_html = '\n'.join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras)
+                paras = [p.strip() for p in contents.split("\n\n") if p.strip()]
+                body_html = "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras)
                 # add a heading if page_title exists
-                if 'page_title' in data:
+                if "page_title" in data:
                     body_html = f"<p class=\"tobira-midashi\" id=\"toc-{i:03d}\">{data['page_title']}</p>\n" + body_html
-            elif chap.lower().endswith(('.html', '.xhtml', '.htm')):
+            elif chap.lower().endswith((".html", ".xhtml", ".htm")):
                 body_html = read_text_file(chap)
                 label = os.path.splitext(os.path.basename(chap))[0]
+                # no YAML, keep defaults
             else:
                 # plain text
                 txt = read_text_file(chap)
-                paras = [ln.strip() for ln in txt.split('\n\n') if ln.strip()]
-                body_html = '\n'.join(f"<p>{p}</p>" for p in paras)
+                paras = [ln.strip() for ln in txt.split("\n\n") if ln.strip()]
+                body_html = "\n".join(f"<p>{p}</p>" for p in paras)
                 label = os.path.splitext(os.path.basename(chap))[0]
         else:
             body_html = f"<p>Missing file: {chap}</p>"
 
-        if template and '<body' in template:
-            start = template.find('>', template.find('<body')) + 1
-            end = template.rfind('</body>')
-            new = template[:start] + '\n' + body_html + '\n' + template[end:]
+        if template:
+            new = _apply_body_template(template, body_html, body_class, direction)
             # set the <title> to the page title/label
             new = _replace_title_in_string(new, label)
             write_text_file(target_path, new)
         else:
-            content = f"<html><head><title>{label}</title></head><body>{body_html}</body></html>"
+            # fallback: generate simple xhtml with attributes
+            style_value = ""
+            if direction:
+                if direction.lower().startswith("v"):
+                    style_value = ' style="writing-mode: vertical-rl; -epub-writing-mode: vertical-rl;"'
+                else:
+                    style_value = ' style="writing-mode: horizontal-tb; -epub-writing-mode: horizontal-tb;"'
+            cls = body_class or "p-text"
+            content = f"<html><head><title>{label}</title></head><body class=\"{cls}\"{style_value}>{body_html}</body></html>"
             write_text_file(target_path, content)
 
         created.append({"id": page_id, "href": f"xhtml/{filename}", "label": label})
@@ -365,110 +472,110 @@ def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], inc
     import xml.etree.ElementTree as ET
 
     ns = {
-        'opf': 'http://www.idpf.org/2007/opf',
-        'dc': 'http://purl.org/dc/elements/1.1/'
+        "opf": "http://www.idpf.org/2007/opf",
+        "dc": "http://purl.org/dc/elements/1.1/",
     }
-    ET.register_namespace('', ns['opf'])
-    ET.register_namespace('dc', ns['dc'])
+    ET.register_namespace("", ns["opf"])
+    ET.register_namespace("dc", ns["dc"])
 
     tree = ET.parse(opf_path)
     root = tree.getroot()
 
     # update basic metadata entries
-    for title_el in root.findall('.//{http://purl.org/dc/elements/1.1/}title'):
-        title_val = meta.get('title') or meta.get('book_title')
+    for title_el in root.findall(".//{http://purl.org/dc/elements/1.1/}title"):
+        title_val = meta.get("title") or meta.get("book_title")
         if title_val:
             title_el.text = title_val
-    for creator in root.findall('.//{http://purl.org/dc/elements/1.1/}creator'):
-        cid = creator.get('id')
-        if cid == 'creator01' and 'creator01' in meta:
-            creator.text = meta['creator01']
-        if cid == 'creator02' and 'creator02' in meta:
-            creator.text = meta['creator02']
-    for pub in root.findall('.//{http://purl.org/dc/elements/1.1/}publisher'):
-        if 'publisher' in meta:
-            pub.text = meta['publisher']
+    for creator in root.findall(".//{http://purl.org/dc/elements/1.1/}creator"):
+        cid = creator.get("id")
+        if cid == "creator01" and "creator01" in meta:
+            creator.text = meta["creator01"]
+        if cid == "creator02" and "creator02" in meta:
+            creator.text = meta["creator02"]
+    for pub in root.findall(".//{http://purl.org/dc/elements/1.1/}publisher"):
+        if "publisher" in meta:
+            pub.text = meta["publisher"]
 
     # identifier
-    for ident in root.findall('.//{http://purl.org/dc/elements/1.1/}identifier'):
-        if ident.get('id') == 'unique-id':
+    for ident in root.findall(".//{http://purl.org/dc/elements/1.1/}identifier"):
+        if ident.get("id") == "unique-id":
             ident.text = f"urn:uuid:{uuid.uuid4()}"
 
     # modified
     now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    for meta_el in root.findall('.//{http://www.idpf.org/2007/opf}meta'):
-        if meta_el.get('property') == 'dcterms:modified':
+    for meta_el in root.findall(".//{http://www.idpf.org/2007/opf}meta"):
+        if meta_el.get("property") == "dcterms:modified":
             meta_el.text = now
 
-    manifest = root.find('{http://www.idpf.org/2007/opf}manifest')
+    manifest = root.find("{http://www.idpf.org/2007/opf}manifest")
     if manifest is None:
         return
 
     # preserve existing nav/style items when possible
-    existing_items = { (it.get('href') or ''): it for it in manifest.findall('{http://www.idpf.org/2007/opf}item') }
+    existing_items = {(it.get("href") or ""): it for it in manifest.findall("{http://www.idpf.org/2007/opf}item")}
 
     # build a new manifest element and populate it in logical groups with comments
-    new_manifest = ET.Element('{http://www.idpf.org/2007/opf}manifest')
+    new_manifest = ET.Element("{http://www.idpf.org/2007/opf}manifest")
 
-    def make_item(item_id, href, media_type='application/xhtml+xml', properties=None):
-        el = ET.Element('{http://www.idpf.org/2007/opf}item')
-        el.set('id', item_id)
-        el.set('href', href)
-        el.set('media-type', media_type)
+    def make_item(item_id, href, media_type="application/xhtml+xml", properties=None):
+        el = ET.Element("{http://www.idpf.org/2007/opf}item")
+        el.set("id", item_id)
+        el.set("href", href)
+        el.set("media-type", media_type)
         if properties:
-            el.set('properties', properties)
+            el.set("properties", properties)
         return el
 
     # navigation
-    new_manifest.append(ET.Comment(' navigation '))
+    new_manifest.append(ET.Comment(" navigation "))
     nav_href = None
     for href, it in existing_items.items():
-        props = it.get('properties') or ''
-        if 'nav' in props:
+        props = it.get("properties") or ""
+        if "nav" in props:
             new_manifest.append(it)
             nav_href = href
             break
     if nav_href is None:
-        new_manifest.append(make_item('toc', 'navigation-documents.xhtml', 'application/xhtml+xml', 'nav'))
+        new_manifest.append(make_item("toc", "navigation-documents.xhtml", "application/xhtml+xml", "nav"))
 
     # styles
-    new_manifest.append(ET.Comment(' style '))
+    new_manifest.append(ET.Comment(" style "))
     for href, it in existing_items.items():
-        if href.startswith('style/') or it.get('media-type') == 'text/css':
+        if href.startswith("style/") or it.get("media-type") == "text/css":
             new_manifest.append(it)
 
     # images: scan output image directory and add any images present
-    new_manifest.append(ET.Comment(' image '))
-    image_folder = os.path.join(os.path.dirname(opf_path), 'image')
+    new_manifest.append(ET.Comment(" image "))
+    image_folder = os.path.join(os.path.dirname(opf_path), "image")
     img_id_map = {}
     if os.path.isdir(image_folder):
         files = sorted(os.listdir(image_folder))
         cnt = 1
         used_ids = set()
         for fn in files:
-            href = f'image/{fn}'
+            href = f"image/{fn}"
             base, ext = os.path.splitext(fn)
             ext = ext.lower()
-            media = 'image/jpeg'
-            if ext == '.png':
-                media = 'image/png'
-            elif ext == '.svg':
-                media = 'image/svg+xml'
-            elif ext == '.gif':
-                media = 'image/gif'
-            elif ext in ('.jpg', '.jpeg'):
-                media = 'image/jpeg'
+            media = "image/jpeg"
+            if ext == ".png":
+                media = "image/png"
+            elif ext == ".svg":
+                media = "image/svg+xml"
+            elif ext == ".gif":
+                media = "image/gif"
+            elif ext in (".jpg", ".jpeg"):
+                media = "image/jpeg"
             # choose id: prefer 'backcover' for filenames containing 'back', 'cover' for cover
             props = None
-            if 'back' in base.lower():
-                item_id = 'backcover'
-            elif 'cover' in base.lower():
-                item_id = 'cover'
-                props = 'cover-image'
+            if "back" in base.lower():
+                item_id = "backcover"
+            elif "cover" in base.lower():
+                item_id = "cover"
+                props = "cover-image"
             else:
-                item_id = re.sub('[^0-9A-Za-z_-]', '-', base)
+                item_id = re.sub("[^0-9A-Za-z_-]", "-", base)
                 if not item_id:
-                    item_id = f'img-{cnt}'
+                    item_id = f"img-{cnt}"
             # ensure unique id
             orig_id = item_id
             i = 1
@@ -482,27 +589,27 @@ def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], inc
             cnt += 1
 
     # xhtml
-    new_manifest.append(ET.Comment(' xhtml '))
+    new_manifest.append(ET.Comment(" xhtml "))
     # keep cover only if file exists
     def add_xhtml_if_exists(item_id, href, properties=None):
         full = os.path.join(os.path.dirname(opf_path), href)
         if os.path.exists(full):
-            new_manifest.append(make_item(item_id, href, 'application/xhtml+xml', properties))
+            new_manifest.append(make_item(item_id, href, "application/xhtml+xml", properties))
 
-    add_xhtml_if_exists('p-cover', 'xhtml/p-cover.xhtml')
+    add_xhtml_if_exists("p-cover", "xhtml/p-cover.xhtml")
     if include_frontmatter:
-        add_xhtml_if_exists('p-fmatter-001', 'xhtml/p-fmatter-001.xhtml')
-    add_xhtml_if_exists('p-titlepage', 'xhtml/p-titlepage.xhtml')
+        add_xhtml_if_exists("p-fmatter-001", "xhtml/p-fmatter-001.xhtml")
+    add_xhtml_if_exists("p-titlepage", "xhtml/p-titlepage.xhtml")
     if include_caution:
-        add_xhtml_if_exists('p-caution', 'xhtml/p-caution.xhtml')
-    add_xhtml_if_exists('p-toc', 'xhtml/p-toc.xhtml')
+        add_xhtml_if_exists("p-caution", "xhtml/p-caution.xhtml")
+    add_xhtml_if_exists("p-toc", "xhtml/p-toc.xhtml")
 
     for ch in chapters_info:
-        add_xhtml_if_exists(ch['id'], ch['href'])
+        add_xhtml_if_exists(ch["id"], ch["href"])
 
-    add_xhtml_if_exists('p-colophon', 'xhtml/p-colophon.xhtml')
-    add_xhtml_if_exists('p-ad-001', 'xhtml/p-ad-001.xhtml')
-    add_xhtml_if_exists('p-backcover', 'xhtml/p-backcover.xhtml')
+    add_xhtml_if_exists("p-colophon", "xhtml/p-colophon.xhtml")
+    add_xhtml_if_exists("p-ad-001", "xhtml/p-ad-001.xhtml")
+    add_xhtml_if_exists("p-backcover", "xhtml/p-backcover.xhtml")
 
     # replace old manifest with new_manifest preserving position
     parent = root
@@ -511,36 +618,36 @@ def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], inc
     parent.remove(manifest)
     parent.insert(idx, new_manifest)
 
-    spine = root.find('{http://www.idpf.org/2007/opf}spine')
+    spine = root.find("{http://www.idpf.org/2007/opf}spine")
     if spine is None:
         return
-    for ir in list(spine.findall('{http://www.idpf.org/2007/opf}itemref')):
+    for ir in list(spine.findall("{http://www.idpf.org/2007/opf}itemref")):
         spine.remove(ir)
 
     def add_itemref(idref, props=None):
-        ir = ET.Element('{http://www.idpf.org/2007/opf}itemref')
-        ir.set('linear', 'yes')
-        ir.set('idref', idref)
+        ir = ET.Element("{http://www.idpf.org/2007/opf}itemref")
+        ir.set("linear", "yes")
+        ir.set("idref", idref)
         if props:
-            ir.set('properties', props)
+            ir.set("properties", props)
         else:
-            ir.set('properties', 'page-spread-left')
+            ir.set("properties", "page-spread-left")
         spine.append(ir)
 
-    add_itemref('p-cover')
+    add_itemref("p-cover")
     if include_frontmatter:
-        add_itemref('p-fmatter-001')
-    add_itemref('p-titlepage')
+        add_itemref("p-fmatter-001")
+    add_itemref("p-titlepage")
     if include_caution:
-        add_itemref('p-caution')
-    add_itemref('p-toc')
+        add_itemref("p-caution")
+    add_itemref("p-toc")
     for ch in chapters_info:
-        add_itemref(ch['id'])
-    add_itemref('p-colophon')
-    add_itemref('p-ad-001')
-    add_itemref('p-backcover')
+        add_itemref(ch["id"])
+    add_itemref("p-colophon")
+    add_itemref("p-ad-001")
+    add_itemref("p-backcover")
 
-    tree.write(opf_path, encoding='utf-8', xml_declaration=True)
+    tree.write(opf_path, encoding="utf-8", xml_declaration=True)
 
 
 def update_opf_basic(opf_path: str, meta: dict) -> None:
@@ -583,56 +690,56 @@ def update_navigation(nav_path: str, chapters_info: list[dict]) -> None:
         '<li><a href="xhtml/p-colophon.xhtml">奥付</a></li>',
     ]
     nav_ol = "\n".join(nav_items)
-    if nav_template and '<ol>' in nav_template:
-        start = nav_template.find('<ol>')
-        end = nav_template.find('</ol>', start)
+    if nav_template and "<ol>" in nav_template:
+        start = nav_template.find("<ol>")
+        end = nav_template.find("</ol>", start)
         if start != -1 and end != -1:
-            nav_template = nav_template[: start + len('<ol>')] + '\n' + nav_ol + '\n' + nav_template[end:]
+            nav_template = nav_template[: start + len("<ol>")] + "\n" + nav_ol + "\n" + nav_template[end:]
             write_text_file(nav_path, nav_template)
     else:
         # fallback simple nav
-        nav_html = '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ja">\n<head>\n<meta charset="UTF-8"/>\n<title>Navigation</title>\n</head>\n<body>\n<nav epub:type="toc" id="toc">\n<h1>Navigation</h1>\n<ol>\n' + nav_ol + '\n</ol>\n</nav>\n</body>\n</html>'
+        nav_html = '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ja">\n<head>\n<meta charset=[...]'
         write_text_file(nav_path, nav_html)
 
     # update p-toc.xhtml: create chapter-only TOC using chapters_info
-    xhtml_dir = os.path.join(os.path.dirname(nav_path), 'xhtml')
-    toc_path = os.path.join(xhtml_dir, 'p-toc.xhtml')
+    xhtml_dir = os.path.join(os.path.dirname(nav_path), "xhtml")
+    toc_path = os.path.join(xhtml_dir, "p-toc.xhtml")
     if os.path.exists(toc_path):
         s2 = read_text_file(toc_path)
         # build chapter-only links
         lines = []
         for ch in chapters_info:
-            href = os.path.basename(ch['href'])
+            href = os.path.basename(ch["href"])
             # if label contains newlines or is long, keep plain label
-            label = ch.get('label') or ch['id']
+            label = ch.get("label") or ch["id"]
             # assume each chapter may have an id anchor like #toc-001
             # if generated, use that anchor
             # extract id number from ch['id'] (p-001 -> 001)
             m = None
             try:
-                m = int(ch['id'].split('-')[-1])
+                m = int(ch["id"].split("-")[-1])
             except Exception:
                 m = None
             if m:
                 anchor = f"#toc-{m:03d}"
             else:
-                anchor = ''
+                anchor = ""
             link = f'<p><a href="{href}{anchor}">{label}</a></p>' if anchor else f'<p><a href="{href}">{label}</a></p>'
             lines.append(link)
-        toc_body = '\n'.join(lines)
+        toc_body = "\n".join(lines)
         # replace between the first <h1 ..> and closing </div> or between known markers
-        if '<ol>' in s2 and '</ol>' in s2:
-            start = s2.find('<ol>')
-            end = s2.find('</ol>', start)
-            s2 = s2[: start + len('<ol>')] + '\n' + '\n'.join([f'<li><a href="{os.path.basename(ch["href"])}">{ch.get("label") or ch.get("id")}</a></li>' for ch in chapters_info]) + '\n' + s2[end:]
+        if "<ol>" in s2 and "</ol>" in s2:
+            start = s2.find("<ol>")
+            end = s2.find("</ol>", start)
+            s2 = s2[: start + len("<ol>")] + "\n" + "\n".join([f'<li><a href="{os.path.basename(ch["href"])}">{ch.get("label") or ch.get("id")}</a></li>' for ch in chapters_info]) + "\n" + s2[end:]
             write_text_file(toc_path, s2)
         else:
             # fallback: replace main content body
-            if '<div class="main">' in s2 and '</div>' in s2:
+            if '<div class="main">' in s2 and "</div>" in s2:
                 st = s2.find('<div class="main">')
-                en = s2.find('</div>', st)
-                newdiv = '<div class="main">\n\n<h1 class="mokuji-midashi">　目次</h1>\n' + toc_body + '\n</div>'
-                s2 = s2[:st] + newdiv + s2[en+6:]
+                en = s2.find("</div>", st)
+                newdiv = '<div class="main">\n\n<h1 class="mokuji-midashi">　目次</h1>\n' + toc_body + "\n</div>"
+                s2 = s2[:st] + newdiv + s2[en + 6 :]
                 write_text_file(toc_path, s2)
 
 
@@ -685,7 +792,7 @@ def main(argv: list[str]) -> int:
         shutil.copytree(TEMPLATE_DIR, tmpdir)
 
     # remove template-provided images so only user-supplied images are included
-    template_image_dir = os.path.join(tmpdir, 'item', 'image')
+    template_image_dir = os.path.join(tmpdir, "item", "image")
     if os.path.isdir(template_image_dir):
         for fn in os.listdir(template_image_dir):
             fp = os.path.join(template_image_dir, fn)
@@ -703,14 +810,14 @@ def main(argv: list[str]) -> int:
     replace_title_in_xhtml(tmpdir, title)
     # generate title page body from metadata (book_title and series_title)
     try:
-        insert_titlepage(os.path.join(tmpdir, 'item', 'xhtml'), meta)
+        insert_titlepage(os.path.join(tmpdir, "item", "xhtml"), meta)
     except Exception:
         pass
 
     # create back cover xhtml by copying p-cover.xhtml -> p-backcover.xhtml (if present)
-    xhtml_dir = os.path.join(tmpdir, 'item', 'xhtml')
-    cover_src = os.path.join(xhtml_dir, 'p-cover.xhtml')
-    back_src = os.path.join(xhtml_dir, 'p-backcover.xhtml')
+    xhtml_dir = os.path.join(tmpdir, "item", "xhtml")
+    cover_src = os.path.join(xhtml_dir, "p-cover.xhtml")
+    back_src = os.path.join(xhtml_dir, "p-backcover.xhtml")
     try:
         if os.path.exists(cover_src) and not os.path.exists(back_src):
             shutil.copy2(cover_src, back_src)
@@ -738,9 +845,9 @@ def main(argv: list[str]) -> int:
             backcover_provided = True
 
     # remove p-cover.xhtml/p-backcover.xhtml if corresponding images not provided
-    xhtml_dir = os.path.join(tmpdir, 'item', 'xhtml')
-    cover_file = os.path.join(xhtml_dir, 'p-cover.xhtml')
-    back_file = os.path.join(xhtml_dir, 'p-backcover.xhtml')
+    xhtml_dir = os.path.join(tmpdir, "item", "xhtml")
+    cover_file = os.path.join(xhtml_dir, "p-cover.xhtml")
+    back_file = os.path.join(xhtml_dir, "p-backcover.xhtml")
     try:
         if not cover_provided and os.path.exists(cover_file):
             os.remove(cover_file)
@@ -752,13 +859,13 @@ def main(argv: list[str]) -> int:
     try:
         if cover_provided:
             # find the provided cover filename
-            cover_fname = os.path.basename(images.get('cover'))
+            cover_fname = os.path.basename(images.get("cover"))
             if cover_fname and os.path.exists(os.path.join(image_dir, cover_fname)) and os.path.exists(cover_file):
                 s = read_text_file(cover_file)
                 s = re.sub(r'src="\.\./image/[^\"]+"', f'src="../image/{cover_fname}"', s)
                 write_text_file(cover_file, s)
         if backcover_provided:
-            back_fname = os.path.basename(images.get('backcover'))
+            back_fname = os.path.basename(images.get("backcover"))
             if back_fname and os.path.exists(os.path.join(image_dir, back_fname)) and os.path.exists(back_file):
                 s = read_text_file(back_file)
                 s = re.sub(r'src="\.\./image/[^\"]+"', f'src="../image/{back_fname}"', s)
@@ -769,11 +876,11 @@ def main(argv: list[str]) -> int:
     # insert frontmatter/caution/colophon
     meta_dir = os.path.dirname(os.path.abspath(meta_path))
     docs = meta.get("documents", {}) or {}
-    front = docs.get('frontmatter')
-    insert_frontmatter(os.path.join(tmpdir, 'item', 'xhtml'), front, meta_dir, os.path.join(tmpdir, 'item', 'image'))
-    insert_caution(os.path.join(tmpdir, 'item', 'xhtml'), meta.get('caution'))
-    insert_colophon(os.path.join(tmpdir, 'item', 'xhtml'), meta.get('colophon'), meta_dir, meta)
-    insert_advertisement(os.path.join(tmpdir, 'item', 'xhtml'), meta.get('advertisement'), meta_dir, meta)
+    front = docs.get("frontmatter")
+    insert_frontmatter(os.path.join(tmpdir, "item", "xhtml"), front, meta_dir, os.path.join(tmpdir, "item", "image"))
+    insert_caution(os.path.join(tmpdir, "item", "xhtml"), meta.get("caution"))
+    insert_colophon(os.path.join(tmpdir, "item", "xhtml"), meta.get("colophon"), meta_dir, meta)
+    insert_advertisement(os.path.join(tmpdir, "item", "xhtml"), meta.get("advertisement"), meta_dir, meta)
 
 
     # inject chapters (support arbitrary number)
@@ -789,11 +896,11 @@ def main(argv: list[str]) -> int:
 
     # remove unused p-XXX.xhtml files from template that were not generated
     try:
-        existing = [n for n in os.listdir(xhtml_dir) if n.endswith('.xhtml')]
-        keep = set([os.path.basename(ch['href']) for ch in chapters_info])
-        keep.update(('p-cover.xhtml','p-titlepage.xhtml','p-fmatter-001.xhtml','p-caution.xhtml','p-toc.xhtml','p-colophon.xhtml','p-ad-001.xhtml','p-backcover.xhtml','p-titlepage.xhtml'))
+        existing = [n for n in os.listdir(xhtml_dir) if n.endswith(".xhtml")]
+        keep = set([os.path.basename(ch["href"]) for ch in chapters_info])
+        keep.update(("p-cover.xhtml","p-titlepage.xhtml","p-fmatter-001.xhtml","p-caution.xhtml","p-toc.xhtml","p-colophon.xhtml","p-ad-001.xhtml","p-backcover.xhtml","p-titlepage.xhtml"))
         for fn in existing:
-            if fn.startswith('p-') and fn not in keep:
+            if fn.startswith("p-") and fn not in keep:
                 fp = os.path.join(xhtml_dir, fn)
                 try:
                     os.remove(fp)
@@ -804,8 +911,8 @@ def main(argv: list[str]) -> int:
 
     # update opf dynamically
     opf_path = os.path.join(tmpdir, "item", "standard.opf")
-    include_frontmatter = bool(docs.get('frontmatter'))
-    include_caution = bool(meta.get('caution'))
+    include_frontmatter = bool(docs.get("frontmatter"))
+    include_caution = bool(meta.get("caution"))
     if os.path.exists(opf_path):
         update_opf_dynamic(opf_path, meta, chapters_info, include_frontmatter, include_caution)
 
