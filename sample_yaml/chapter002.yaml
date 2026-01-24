@@ -1,5 +1,6 @@
 page_title: 第二章　ツール作成
 direction: Vertical
+body_class: p-text
 contents: |
   最初はpythonスクリプトも1ファイルで作成していたのですが、欲をかいてもう少しツールとしての完成度を高めようと、github copilot Freeでどこまでできるかを試してみることにした。
   それなりに表示できるようにはなったけど今一つ納得できない部分もあるので、改善中。

@@ -631,7 +631,7 @@ def update_navigation(nav_path: str, chapters_info: list[dict]) -> None:
             if '<div class="main">' in s2 and '</div>' in s2:
                 st = s2.find('<div class="main">')
                 en = s2.find('</div>', st)
-                newdiv = '<div class="main">\n\n<h1 class="mokuji-midashi">　目次見出し</h1>\n' + toc_body + '\n</div>'
+                newdiv = '<div class="main">\n\n<h1 class="mokuji-midashi">　目次</h1>\n' + toc_body + '\n</div>'
                 s2 = s2[:st] + newdiv + s2[en+6:]
                 write_text_file(toc_path, s2)
 

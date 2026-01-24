@@ -24,6 +24,7 @@ documents:
     image: sample_textmap.jpg
   contents:
     - chapter: synopsis.yaml
+    - chapter: tobira.yaml
     - chapter: chapter001.yaml
     - chapter: chapter002.yaml
     - chapter: chapter003.yaml

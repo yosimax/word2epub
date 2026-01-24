@@ -1,5 +1,6 @@
 page_title: 第一章　はじめに
 direction: Vertical
+body_class: p-text
 contents: |
   とりあえず日本語訳を縦書きで読みたくて書いたものです。
   Wordで作成してPDF化するだけでも良いかと思ったのですがタブレットやスマートフォンなどで読みたくなったので、EPUB3形式に変換できないかと思い生成AIで変換ツールを作成してみたものです。
