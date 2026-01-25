@@ -467,8 +467,7 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str]) -> list[dict]:
 
     return created
 
-
-def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], include_frontmatter: bool, include_caution: bool) -> None:
+def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], include_frontmatter: bool, include_caution: bool, include_advertisement: bool = True) -> None:
     import xml.etree.ElementTree as ET
 
     ns = {
@@ -608,7 +607,8 @@ def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], inc
         add_xhtml_if_exists(ch["id"], ch["href"])
 
     add_xhtml_if_exists("p-colophon", "xhtml/p-colophon.xhtml")
-    add_xhtml_if_exists("p-ad-001", "xhtml/p-ad-001.xhtml")
+    if include_advertisement:
+        add_xhtml_if_exists("p-ad-001", "xhtml/p-ad-001.xhtml")
     add_xhtml_if_exists("p-backcover", "xhtml/p-backcover.xhtml")
 
     # replace old manifest with new_manifest preserving position
@@ -644,7 +644,8 @@ def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], inc
     for ch in chapters_info:
         add_itemref(ch["id"])
     add_itemref("p-colophon")
-    add_itemref("p-ad-001")
+    if include_advertisement:
+        add_itemref("p-ad-001")
     add_itemref("p-backcover")
 
     tree.write(opf_path, encoding="utf-8", xml_declaration=True)
@@ -882,6 +883,11 @@ def main(argv: list[str]) -> int:
     insert_colophon(os.path.join(tmpdir, "item", "xhtml"), meta.get("colophon"), meta_dir, meta)
     insert_advertisement(os.path.join(tmpdir, "item", "xhtml"), meta.get("advertisement"), meta_dir, meta)
 
+    # Check if advertisement should be included (NONE = exclude)
+    adv_spec = meta.get("advertisement")
+    adv_text = adv_spec.get("text") if isinstance(adv_spec, dict) else adv_spec
+    include_advertisement = adv_text != "NONE"
+
 
     # inject chapters (support arbitrary number)
     docs = meta.get("documents", {}) or {}
@@ -914,7 +920,7 @@ def main(argv: list[str]) -> int:
     include_frontmatter = bool(docs.get("frontmatter"))
     include_caution = bool(meta.get("caution"))
     if os.path.exists(opf_path):
-        update_opf_dynamic(opf_path, meta, chapters_info, include_frontmatter, include_caution)
+        update_opf_dynamic(opf_path, meta, chapters_info, include_frontmatter, include_caution, include_advertisement)
 
     # update nav
     nav_path = os.path.join(tmpdir, "item", "navigation-documents.xhtml")
