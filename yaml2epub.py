@@ -138,7 +138,9 @@ def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_d
             body_class = data.get("body_class") or spec_body_class
             contents = data.get("contents", "")
             paras = [p.strip() for p in contents.split("\n\n") if p.strip()]
-            body_html = "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras)
+            # first paragraph indented
+            if paras:
+                body_html = f'<p class="indent-1em">{paras[0].replace("\n", "<br/>")}</p>\n' + "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras[1:])
             if "page_title" in data:
                 body_html = f"<p class=\"tobira-midashi\">{data['page_title']}</p>\n" + body_html
                 label = data.get("page_title")
@@ -429,7 +431,11 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str]) -> list[dict]:
                 body_class = data.get("body_class")
                 # split into paragraphs by blank lines
                 paras = [p.strip() for p in contents.split("\n\n") if p.strip()]
-                body_html = "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras)
+                # first paragraph indented
+                if paras:
+                    body_html = f'<p class="indent-1em">{paras[0].replace("\n", "<br/>")}</p>\n' + "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras[1:])
+                else:
+                    body_html = ""
                 # add a heading if page_title exists
                 if "page_title" in data:
                     body_html = f"<p class=\"tobira-midashi\" id=\"toc-{i:03d}\">{data['page_title']}</p>\n" + body_html
