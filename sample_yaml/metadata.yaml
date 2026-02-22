@@ -28,3 +28,8 @@ documents:
     - chapter: chapter001.yaml
     - chapter: chapter002.yaml
     - chapter: chapter003.yaml
+  backmatter:
+    text: backmatter.yaml
+    image: 
+      - sample_textmap1.jpg
+      - sample_textmap2.jpg

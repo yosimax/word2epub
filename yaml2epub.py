@@ -110,7 +110,14 @@ def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_d
     if not spec:
         return
     text = spec.get("text") if isinstance(spec, dict) else spec
-    image = spec.get("image") if isinstance(spec, dict) else None
+    # allow either a single image path or list of paths
+    img_spec = spec.get("image") if isinstance(spec, dict) else None
+    images: list[str] = []
+    if img_spec:
+        if isinstance(img_spec, list):
+            images = img_spec
+        else:
+            images = [img_spec]
 
     # resolve paths
     text_path = None
@@ -161,13 +168,17 @@ def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_d
         direction = spec_direction
         body_class = spec_body_class
 
-    # add image if present
-    if image:
+    # add any images if present - collect in order before prepending
+    image_tags = []
+    for image in images:
         img_path = image if os.path.isabs(image) else os.path.join(meta_dir, image)
         if os.path.exists(img_path):
             shutil.copy2(img_path, os.path.join(image_dir, os.path.basename(img_path)))
             img_tag = f'<p><img class="fit" src="../image/{os.path.basename(img_path)}" alt=""/></p>'
-            body_html = img_tag + "\n" + body_html
+            image_tags.append(img_tag)
+    # prepend all images in original order
+    if image_tags:
+        body_html = "\n".join(image_tags) + "\n" + body_html
 
     # write into p-fmatter-001.xhtml using template
     tpl = os.path.join(xhtml_dir, "p-fmatter-001.xhtml")
@@ -178,6 +189,93 @@ def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_d
         write_text_file(target, new)
     else:
         # fallback simple html
+        new = _apply_body_template(None, body_html, body_class, direction)
+        write_text_file(target, new)
+
+
+def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str) -> None:
+    """Create a backmatter page using the same template as frontmatter.
+
+    The interface is identical to :func:`insert_frontmatter`.  The result is
+    written to ``p-bmatter-001.xhtml`` and is intended to be inserted after
+    the main contents and before the colophon in the spine.
+    """
+    if not spec:
+        return
+    text = spec.get("text") if isinstance(spec, dict) else spec
+    img_spec = spec.get("image") if isinstance(spec, dict) else None
+    images: list[str] = []
+    if img_spec:
+        if isinstance(img_spec, list):
+            images = img_spec
+        else:
+            images = [img_spec]
+
+    # resolve paths
+    text_path = None
+    if text:
+        text_path = text if os.path.isabs(text) else os.path.join(meta_dir, text)
+
+    # prepare body
+    body_html = ""
+    label = "backmatter"
+    spec_direction = spec.get("direction") if isinstance(spec, dict) else None
+    spec_body_class = spec.get("body_class") if isinstance(spec, dict) else None
+    direction = None
+    body_class = None
+
+    if text_path and os.path.exists(text_path):
+        if text_path.lower().endswith((".yaml", ".yml")):
+            with open(text_path, "r", encoding="utf-8") as f:
+                try:
+                    data = yaml.safe_load(f) or {}
+                except Exception:
+                    data = {}
+            direction = data.get("direction") or spec_direction
+            body_class = data.get("body_class") or spec_body_class
+            contents = data.get("contents", "")
+            paras = [p.strip() for p in contents.split("\n\n") if p.strip()]
+            if paras:
+                body_html = f'<p class="indent-1em">{paras[0].replace("\n", "<br/>")}</p>\n' + "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras[1:])
+            if "page_title" in data:
+                body_html = f"<p class=\"tobira-midashi\">{data['page_title']}</p>\n" + body_html
+                label = data.get("page_title")
+        elif text_path.lower().endswith((".html", ".xhtml", ".htm")):
+            body_html = read_text_file(text_path)
+            label = os.path.splitext(os.path.basename(text_path))[0]
+            direction = spec_direction
+            body_class = spec_body_class
+        else:
+            txt = read_text_file(text_path)
+            paras = [ln.strip() for ln in txt.split("\n\n") if ln.strip()]
+            body_html = "\n".join(f"<p>{p}</p>" for p in paras)
+            label = os.path.splitext(os.path.basename(text_path))[0]
+            direction = spec_direction
+            body_class = spec_body_class
+    else:
+        direction = spec_direction
+        body_class = spec_body_class
+
+    # add any images if present - collect in order before prepending
+    image_tags = []
+    for image in images:
+        img_path = image if os.path.isabs(image) else os.path.join(meta_dir, image)
+        if os.path.exists(img_path):
+            shutil.copy2(img_path, os.path.join(image_dir, os.path.basename(img_path)))
+            img_tag = f'<p><img class="fit" src="../image/{os.path.basename(img_path)}" alt=""/></p>'
+            image_tags.append(img_tag)
+    # prepend all images in original order
+    if image_tags:
+        body_html = "\n".join(image_tags) + "\n" + body_html
+
+    # use frontmatter template for backmatter as requested
+    tpl = os.path.join(xhtml_dir, "p-fmatter-001.xhtml")
+    target = os.path.join(xhtml_dir, "p-bmatter-001.xhtml")
+    template = read_text_file(tpl) if os.path.exists(tpl) else None
+    if template:
+        new = _apply_body_template(template, body_html, body_class, direction)
+        write_text_file(target, new)
+    else:
         new = _apply_body_template(None, body_html, body_class, direction)
         write_text_file(target, new)
 
@@ -473,7 +571,7 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str]) -> list[dict]:
 
     return created
 
-def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], include_frontmatter: bool, include_caution: bool, include_advertisement: bool = True) -> None:
+def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], include_frontmatter: bool, include_caution: bool, include_backmatter: bool = False, include_advertisement: bool = True) -> None:
     import xml.etree.ElementTree as ET
 
     ns = {
@@ -612,6 +710,9 @@ def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], inc
     for ch in chapters_info:
         add_xhtml_if_exists(ch["id"], ch["href"])
 
+    if include_backmatter:
+        add_xhtml_if_exists("p-bmatter-001", "xhtml/p-bmatter-001.xhtml")
+
     add_xhtml_if_exists("p-colophon", "xhtml/p-colophon.xhtml")
     if include_advertisement:
         add_xhtml_if_exists("p-ad-001", "xhtml/p-ad-001.xhtml")
@@ -649,6 +750,8 @@ def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], inc
     add_itemref("p-toc")
     for ch in chapters_info:
         add_itemref(ch["id"])
+    if include_backmatter:
+        add_itemref("p-bmatter-001")
     add_itemref("p-colophon")
     if include_advertisement:
         add_itemref("p-ad-001")
@@ -694,8 +797,12 @@ def update_navigation(nav_path: str, chapters_info: list[dict]) -> None:
     nav_items = [
         '<li><a href="xhtml/p-cover.xhtml">表紙</a></li>',
         '<li><a href="xhtml/p-toc.xhtml">目次</a></li>',
-        '<li><a href="xhtml/p-colophon.xhtml">奥付</a></li>',
     ]
+    # if backmatter file exists, show link before colophon
+    back_path = os.path.join(os.path.dirname(nav_path), "xhtml", "p-bmatter-001.xhtml")
+    if os.path.exists(back_path):
+        nav_items.append('<li><a href="xhtml/p-bmatter-001.xhtml">あとがき</a></li>')
+    nav_items.append('<li><a href="xhtml/p-colophon.xhtml">奥付</a></li>')
     nav_ol = "\n".join(nav_items)
     if nav_template and "<ol>" in nav_template:
         start = nav_template.find("<ol>")
@@ -704,8 +811,19 @@ def update_navigation(nav_path: str, chapters_info: list[dict]) -> None:
             nav_template = nav_template[: start + len("<ol>")] + "\n" + nav_ol + "\n" + nav_template[end:]
             write_text_file(nav_path, nav_template)
     else:
-        # fallback simple nav
-        nav_html = '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ja">\n<head>\n<meta charset=[...]'
+        # fallback simple nav using assembled items
+        nav_html = '<?xml version="1.0" encoding="UTF-8"?>\n' \
+                   '<!DOCTYPE html>\n' \
+                   '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ja">\n' \
+                   '<head>\n<meta charset="UTF-8"/>\n' \
+                   '<title>Navigation</title>\n' \
+                   '</head>\n' \
+                   '<body>\n' \
+                   '<nav epub:type="toc" id="toc">\n' \
+                   '<ol>\n' + nav_ol + '\n</ol>\n' \
+                   '</nav>\n' \
+                   '</body>\n' \
+                   '</html>'
         write_text_file(nav_path, nav_html)
 
     # update p-toc.xhtml: create chapter-only TOC using chapters_info
@@ -733,12 +851,20 @@ def update_navigation(nav_path: str, chapters_info: list[dict]) -> None:
                 anchor = ""
             link = f'<p><a href="{href}{anchor}">{label}</a></p>' if anchor else f'<p><a href="{href}">{label}</a></p>'
             lines.append(link)
+        # append backmatter entry if it exists
+        back_href = "p-bmatter-001.xhtml"
+        back_file = os.path.join(xhtml_dir, back_href)
+        if os.path.exists(back_file):
+            lines.append(f'<p><a href="{back_href}">後記</a></p>')
         toc_body = "\n".join(lines)
         # replace between the first <h1 ..> and closing </div> or between known markers
         if "<ol>" in s2 and "</ol>" in s2:
             start = s2.find("<ol>")
             end = s2.find("</ol>", start)
-            s2 = s2[: start + len("<ol>")] + "\n" + "\n".join([f'<li><a href="{os.path.basename(ch["href"])}">{ch.get("label") or ch.get("id")}</a></li>' for ch in chapters_info]) + "\n" + s2[end:]
+            s2 = s2[: start + len("<ol>")] + "\n" + "\n".join([f'<li><a href="{os.path.basename(ch["href"])}">{ch.get("label") or ch.get("id")}</a></li>' for ch in chapters_info])
+            if os.path.exists(back_file):
+                s2 += "\n" + f'<li><a href="{back_href}">後記</a></li>'
+            s2 += "\n" + s2[end:]
             write_text_file(toc_path, s2)
         else:
             # fallback: replace main content body
@@ -764,16 +890,20 @@ def make_epub_from_template(tmpdir: str, out_epub: str) -> None:
         # let ZipFile raise a clear PermissionError if file is locked
         pass
 
-    with zipfile.ZipFile(out_epub, "w", compression=zipfile.ZIP_DEFLATED) as z:
-        # mimetype must be stored and first
-        z.writestr("mimetype", read_text_file(mimetype_path), compress_type=zipfile.ZIP_STORED)
-        for base, dirs, files in os.walk(root):
-            for fn in files:
-                path = os.path.join(base, fn)
-                arcname = os.path.relpath(path, root)
-                if arcname == "mimetype":
-                    continue
-                z.write(path, arcname)
+    try:
+        with zipfile.ZipFile(out_epub, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            # mimetype must be stored and first
+            z.writestr("mimetype", read_text_file(mimetype_path), compress_type=zipfile.ZIP_STORED)
+            for base, dirs, files in os.walk(root):
+                for fn in files:
+                    path = os.path.join(base, fn)
+                    arcname = os.path.relpath(path, root)
+                    if arcname == "mimetype":
+                        continue
+                    z.write(path, arcname)
+    except PermissionError as e:
+        # often caused by the destination file being opened by another program
+        raise PermissionError(f"could not write EPUB '{out_epub}'; please close it if open and retry") from e
 
 
 def main(argv: list[str]) -> int:
@@ -884,8 +1014,10 @@ def main(argv: list[str]) -> int:
     meta_dir = os.path.dirname(os.path.abspath(meta_path))
     docs = meta.get("documents", {}) or {}
     front = docs.get("frontmatter")
+    back = docs.get("backmatter")
     insert_frontmatter(os.path.join(tmpdir, "item", "xhtml"), front, meta_dir, os.path.join(tmpdir, "item", "image"))
     insert_caution(os.path.join(tmpdir, "item", "xhtml"), meta.get("caution"))
+    insert_backmatter(os.path.join(tmpdir, "item", "xhtml"), back, meta_dir, os.path.join(tmpdir, "item", "image"))
     insert_colophon(os.path.join(tmpdir, "item", "xhtml"), meta.get("colophon"), meta_dir, meta)
     insert_advertisement(os.path.join(tmpdir, "item", "xhtml"), meta.get("advertisement"), meta_dir, meta)
 
@@ -893,6 +1025,8 @@ def main(argv: list[str]) -> int:
     adv_spec = meta.get("advertisement")
     adv_text = adv_spec.get("text") if isinstance(adv_spec, dict) else adv_spec
     include_advertisement = adv_text != "NONE"
+
+    include_backmatter = bool(back)
 
 
     # inject chapters (support arbitrary number)
@@ -911,6 +1045,9 @@ def main(argv: list[str]) -> int:
         existing = [n for n in os.listdir(xhtml_dir) if n.endswith(".xhtml")]
         keep = set([os.path.basename(ch["href"]) for ch in chapters_info])
         keep.update(("p-cover.xhtml","p-titlepage.xhtml","p-fmatter-001.xhtml","p-caution.xhtml","p-toc.xhtml","p-colophon.xhtml","p-ad-001.xhtml","p-backcover.xhtml","p-titlepage.xhtml"))
+        # also keep backmatter if present
+        if include_backmatter:
+            keep.add("p-bmatter-001.xhtml")
         for fn in existing:
             if fn.startswith("p-") and fn not in keep:
                 fp = os.path.join(xhtml_dir, fn)
@@ -926,7 +1063,7 @@ def main(argv: list[str]) -> int:
     include_frontmatter = bool(docs.get("frontmatter"))
     include_caution = bool(meta.get("caution"))
     if os.path.exists(opf_path):
-        update_opf_dynamic(opf_path, meta, chapters_info, include_frontmatter, include_caution, include_advertisement)
+        update_opf_dynamic(opf_path, meta, chapters_info, include_frontmatter, include_caution, include_backmatter, include_advertisement)
 
     # update nav
     nav_path = os.path.join(tmpdir, "item", "navigation-documents.xhtml")
