@@ -15,7 +15,7 @@ import shutil
 import tempfile
 import zipfile
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 import re
 
 try:
@@ -582,7 +582,7 @@ def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], inc
             ident.text = f"urn:uuid:{uuid.uuid4()}"
 
     # modified
-    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     for meta_el in root.findall(".//{http://www.idpf.org/2007/opf}meta"):
         if meta_el.get("property") == "dcterms:modified":
             meta_el.text = now
@@ -756,7 +756,7 @@ def update_opf_basic(opf_path: str, meta: dict) -> None:
         f"<dc:identifier id=\"unique-id\">{uid}</dc:identifier>",
     )
     # modified
-    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if "<meta property=\"dcterms:modified\">" in s:
         start = s.find("<meta property=\"dcterms:modified\">")
         end = s.find("</meta>", start) + len("</meta>")
