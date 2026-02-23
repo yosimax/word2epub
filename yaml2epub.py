@@ -27,6 +27,36 @@ except Exception:
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "TEMPLATE", "book-template")
 
+# File structure constants
+ITEM_DIR = "item"
+XHTML_DIR = "item/xhtml"
+IMAGE_DIR = "item/image"
+META_INF_DIR = "META-INF"
+
+# XHTML file IDs and names
+XHTML_COVER = "p-cover.xhtml"
+XHTML_FRONTMATTER = "p-fmatter-001.xhtml"
+XHTML_TITLEPAGE = "p-titlepage.xhtml"
+XHTML_CAUTION = "p-caution.xhtml"
+XHTML_TOC = "p-toc.xhtml"
+XHTML_BACKMATTER = "p-bmatter-001.xhtml"
+XHTML_COLOPHON = "p-colophon.xhtml"
+XHTML_ADVERTISEMENT = "p-ad-001.xhtml"
+XHTML_BACKCOVER = "p-backcover.xhtml"
+
+# OPF file
+OPF_FILE = "item/standard.opf"
+
+# Navigation file
+NAV_FILE = "item/navigation-documents.xhtml"
+
+# XML namespaces
+NS_OPF = "http://www.idpf.org/2007/opf"
+NS_DC = "http://purl.org/dc/elements/1.1/"
+
+# Default values
+DEFAULT_TITLE = "作品名未設定"
+
 
 def read_text_file(path: str) -> str:
     with open(path, "r", encoding="utf-8") as f:
@@ -832,7 +862,7 @@ def update_navigation(nav_path: str, chapters_info: list[dict]) -> None:
         back_href = "p-bmatter-001.xhtml"
         back_file = os.path.join(xhtml_dir, back_href)
         if os.path.exists(back_file):
-            lines.append(f'<p><a href="{back_href}">後記</a></p>')
+            lines.append(f'<p><a href="{back_href}">あとがき</a></p>')
         toc_body = "\n".join(lines)
         # replace between the first <h1 ..> and closing </div> or between known markers
         if "<ol>" in s2 and "</ol>" in s2:
@@ -840,7 +870,7 @@ def update_navigation(nav_path: str, chapters_info: list[dict]) -> None:
             end = s2.find("</ol>", start)
             s2 = s2[: start + len("<ol>")] + "\n" + "\n".join([f'<li><a href="{os.path.basename(ch["href"])}">{ch.get("label") or ch.get("id")}</a></li>' for ch in chapters_info])
             if os.path.exists(back_file):
-                s2 += "\n" + f'<li><a href="{back_href}">後記</a></li>'
+                s2 += "\n" + f'<li><a href="{back_href}">あとがき</a></li>'
             s2 += "\n" + s2[end:]
             write_text_file(toc_path, s2)
         else:
@@ -883,30 +913,21 @@ def make_epub_from_template(tmpdir: str, out_epub: str) -> None:
         raise PermissionError(f"could not write EPUB '{out_epub}'; please close it if open and retry") from e
 
 
-def main(argv: list[str]) -> int:
-    if len(argv) < 2:
-        print("usage: yaml2epub.py metadata.yaml [out.epub]")
-        return 2
-    meta_path = argv[1]
-    out_epub = argv[2] if len(argv) >= 3 else "out.epub"
+def _setup_temporary_directory(tmpdir: str) -> None:
+    """Set up the temporary directory by copying template and cleaning up template images.
 
-    if not os.path.exists(meta_path):
-        print(f"metadata file not found: {meta_path}")
-        return 1
-
-    with open(meta_path, "r", encoding="utf-8") as f:
-        meta = yaml.safe_load(f) or {}
-
-    # copy template to tmpdir
-    tmpdir = tempfile.mkdtemp(prefix="yaml2epub_")
+    Args:
+        tmpdir (str): Temporary directory path.
+    """
+    # Copy template to tmpdir
     try:
         shutil.copytree(TEMPLATE_DIR, os.path.join(tmpdir), dirs_exist_ok=True)
     except Exception:
         # older Python copytree fallback
         shutil.copytree(TEMPLATE_DIR, tmpdir)
 
-    # remove template-provided images so only user-supplied images are included
-    template_image_dir = os.path.join(tmpdir, "item", "image")
+    # Remove template-provided images so only user-supplied images are included
+    template_image_dir = os.path.join(tmpdir, IMAGE_DIR)
     if os.path.isdir(template_image_dir):
         for fn in os.listdir(template_image_dir):
             fp = os.path.join(template_image_dir, fn)
@@ -919,49 +940,46 @@ def main(argv: list[str]) -> int:
                 # ignore; best-effort cleanup
                 pass
 
-    # replace title in xhtml templates (support book_title key)
-    title = meta.get("title") or meta.get("book_title", "作品名未設定")
-    replace_title_in_xhtml(tmpdir, title)
-    # generate title page body from metadata (book_title and series_title)
-    try:
-        insert_titlepage(os.path.join(tmpdir, "item", "xhtml"), meta)
-    except Exception:
-        pass
 
-    # create back cover xhtml by copying p-cover.xhtml -> p-backcover.xhtml (if present)
-    xhtml_dir = os.path.join(tmpdir, "item", "xhtml")
-    cover_src = os.path.join(xhtml_dir, "p-cover.xhtml")
-    back_src = os.path.join(xhtml_dir, "p-backcover.xhtml")
-    try:
-        if os.path.exists(cover_src) and not os.path.exists(back_src):
-            shutil.copy2(cover_src, back_src)
-    except Exception:
-        pass
+def _process_images(tmpdir: str, meta: dict, meta_path: str) -> tuple[bool, bool]:
+    """Process images (cover and backcover) from metadata.
 
-    # handle images
+    Args:
+        tmpdir (str): Temporary directory path.
+        meta (dict): Metadata dictionary.
+        meta_path (str): Path to metadata file.
+
+    Returns:
+        tuple[bool, bool]: (cover_provided, backcover_provided)
+    """
     images = meta.get("image", {}) or {}
-    image_dir = os.path.join(tmpdir, "item", "image")
+    image_dir = os.path.join(tmpdir, IMAGE_DIR)
     os.makedirs(image_dir, exist_ok=True)
-    # copy user-specified cover/backcover without converting filenames
+
+    xhtml_dir = os.path.join(tmpdir, XHTML_DIR)
+    cover_file = os.path.join(xhtml_dir, XHTML_COVER)
+    back_file = os.path.join(xhtml_dir, XHTML_BACKCOVER)
+
+    # Copy user-specified cover/backcover without converting filenames
     cover_provided = False
     backcover_provided = False
+    meta_dir = os.path.dirname(os.path.abspath(meta_path))
+
     if "cover" in images:
         src = images["cover"]
-        src_path = src if os.path.isabs(src) else os.path.join(os.path.dirname(os.path.abspath(meta_path)), src)
+        src_path = src if os.path.isabs(src) else os.path.join(meta_dir, src)
         if os.path.exists(src_path):
             shutil.copy2(src_path, os.path.join(image_dir, os.path.basename(src_path)))
             cover_provided = True
+
     if "backcover" in images:
         src = images["backcover"]
-        src_path = src if os.path.isabs(src) else os.path.join(os.path.dirname(os.path.abspath(meta_path)), src)
+        src_path = src if os.path.isabs(src) else os.path.join(meta_dir, src)
         if os.path.exists(src_path):
             shutil.copy2(src_path, os.path.join(image_dir, os.path.basename(src_path)))
             backcover_provided = True
 
-    # remove p-cover.xhtml/p-backcover.xhtml if corresponding images not provided
-    xhtml_dir = os.path.join(tmpdir, "item", "xhtml")
-    cover_file = os.path.join(xhtml_dir, "p-cover.xhtml")
-    back_file = os.path.join(xhtml_dir, "p-backcover.xhtml")
+    # Remove p-cover.xhtml/p-backcover.xhtml if corresponding images not provided
     try:
         if not cover_provided and os.path.exists(cover_file):
             os.remove(cover_file)
@@ -969,10 +987,10 @@ def main(argv: list[str]) -> int:
             os.remove(back_file)
     except Exception:
         pass
-    # if cover/backcover provided, update p-cover.xhtml/p-backcover.xhtml image src to actual filenames
+
+    # Update p-cover.xhtml/p-backcover.xhtml image src to actual filenames
     try:
         if cover_provided:
-            # find the provided cover filename
             cover_fname = os.path.basename(images.get("cover"))
             if cover_fname and os.path.exists(os.path.join(image_dir, cover_fname)) and os.path.exists(cover_file):
                 s = read_text_file(cover_file)
@@ -987,44 +1005,77 @@ def main(argv: list[str]) -> int:
     except Exception:
         pass
 
-    # insert frontmatter/caution/colophon
+    return cover_provided, backcover_provided
+
+
+def _generate_document_content(tmpdir: str, meta: dict, meta_path: str) -> tuple[bool, bool, list[dict]]:
+    """Generate document content (frontmatter, backmatter, etc.) and chapters.
+
+    Args:
+        tmpdir (str): Temporary directory path.
+        meta (dict): Metadata dictionary.
+        meta_path (str): Path to metadata file.
+
+    Returns:
+        tuple[bool, bool, list[dict]]: (include_advertisement, include_backmatter, chapters_info)
+    """
     meta_dir = os.path.dirname(os.path.abspath(meta_path))
+    xhtml_dir = os.path.join(tmpdir, XHTML_DIR)
+    image_dir = os.path.join(tmpdir, IMAGE_DIR)
+
+    # Replace title in xhtml templates (support book_title key)
+    title = meta.get("title") or meta.get("book_title", DEFAULT_TITLE)
+    replace_title_in_xhtml(tmpdir, title)
+
+    # Generate title page body from metadata (book_title and series_title)
+    try:
+        insert_titlepage(xhtml_dir, meta)
+    except Exception:
+        pass
+
+    # Create back cover xhtml by copying p-cover.xhtml -> p-backcover.xhtml (if present)
+    cover_src = os.path.join(xhtml_dir, XHTML_COVER)
+    back_src = os.path.join(xhtml_dir, XHTML_BACKCOVER)
+    try:
+        if os.path.exists(cover_src) and not os.path.exists(back_src):
+            shutil.copy2(cover_src, back_src)
+    except Exception:
+        pass
+
+    # Insert documents: frontmatter/caution/backmatter/colophon/advertisement
     docs = meta.get("documents", {}) or {}
     front = docs.get("frontmatter")
     back = docs.get("backmatter")
-    insert_frontmatter(os.path.join(tmpdir, "item", "xhtml"), front, meta_dir, os.path.join(tmpdir, "item", "image"))
-    insert_caution(os.path.join(tmpdir, "item", "xhtml"), meta.get("caution"))
-    insert_backmatter(os.path.join(tmpdir, "item", "xhtml"), back, meta_dir, os.path.join(tmpdir, "item", "image"))
-    insert_colophon(os.path.join(tmpdir, "item", "xhtml"), meta.get("colophon"), meta_dir, meta)
-    insert_advertisement(os.path.join(tmpdir, "item", "xhtml"), meta.get("advertisement"), meta_dir, meta)
+
+    insert_frontmatter(xhtml_dir, front, meta_dir, image_dir)
+    insert_caution(xhtml_dir, meta.get("caution"))
+    insert_backmatter(xhtml_dir, back, meta_dir, image_dir)
+    insert_colophon(xhtml_dir, meta.get("colophon"), meta_dir, meta)
+    insert_advertisement(xhtml_dir, meta.get("advertisement"), meta_dir, meta)
 
     # Check if advertisement should be included (NONE = exclude)
     adv_spec = meta.get("advertisement")
     adv_text = adv_spec.get("text") if isinstance(adv_spec, dict) else adv_spec
     include_advertisement = adv_text != "NONE"
-
     include_backmatter = bool(back)
 
-
-    # inject chapters (support arbitrary number)
-    docs = meta.get("documents", {}) or {}
+    # Inject chapters (support arbitrary number)
     contents = docs.get("contents", []) or []
     chapters = [d.get("chapter") if isinstance(d, dict) else d for d in contents]
     chapters = [c for c in chapters if c]
-    # resolve chapter paths relative to metadata file
-    meta_dir = os.path.dirname(os.path.abspath(meta_path))
+    # Resolve chapter paths relative to metadata file
     chapters = [c if os.path.isabs(c) else os.path.join(meta_dir, c) for c in chapters]
-    xhtml_dir = os.path.join(tmpdir, "item", "xhtml")
     chapters_info = generate_chapter_xhtmls(xhtml_dir, chapters)
 
-    # remove unused p-XXX.xhtml files from template that were not generated
+    # Remove unused p-XXX.xhtml files from template that were not generated
     try:
         existing = [n for n in os.listdir(xhtml_dir) if n.endswith(".xhtml")]
         keep = set([os.path.basename(ch["href"]) for ch in chapters_info])
-        keep.update(("p-cover.xhtml","p-titlepage.xhtml","p-fmatter-001.xhtml","p-caution.xhtml","p-toc.xhtml","p-colophon.xhtml","p-ad-001.xhtml","p-backcover.xhtml","p-titlepage.xhtml"))
-        # also keep backmatter if present
+        keep.update((XHTML_COVER, XHTML_TITLEPAGE, XHTML_FRONTMATTER, XHTML_CAUTION, 
+                     XHTML_TOC, XHTML_COLOPHON, XHTML_ADVERTISEMENT, XHTML_BACKCOVER))
+        # Also keep backmatter if present
         if include_backmatter:
-            keep.add("p-bmatter-001.xhtml")
+            keep.add(XHTML_BACKMATTER)
         for fn in existing:
             if fn.startswith("p-") and fn not in keep:
                 fp = os.path.join(xhtml_dir, fn)
@@ -1035,23 +1086,93 @@ def main(argv: list[str]) -> int:
     except Exception:
         pass
 
-    # update opf dynamically
-    opf_path = os.path.join(tmpdir, "item", "standard.opf")
-    include_frontmatter = bool(docs.get("frontmatter"))
-    include_caution = bool(meta.get("caution"))
-    if os.path.exists(opf_path):
-        update_opf_dynamic(opf_path, meta, chapters_info, include_frontmatter, include_caution, include_backmatter, include_advertisement)
+    return include_advertisement, include_backmatter, chapters_info
 
-    # update nav
-    nav_path = os.path.join(tmpdir, "item", "navigation-documents.xhtml")
+
+def _update_manifest_and_spine(tmpdir: str, meta: dict, chapters_info: list[dict], 
+                                 include_frontmatter: bool, include_caution: bool,
+                                 include_backmatter: bool, include_advertisement: bool) -> None:
+    """Update OPF manifest/spine and navigation documents.
+
+    Args:
+        tmpdir (str): Temporary directory path.
+        meta (dict): Metadata dictionary.
+        chapters_info (list[dict]): Chapter information list.
+        include_frontmatter (bool): Whether frontmatter is included.
+        include_caution (bool): Whether caution is included.
+        include_backmatter (bool): Whether backmatter is included.
+        include_advertisement (bool): Whether advertisement is included.
+    """
+    # Update OPF dynamically
+    opf_path = os.path.join(tmpdir, OPF_FILE)
+    if os.path.exists(opf_path):
+        update_opf_dynamic(opf_path, meta, chapters_info, include_frontmatter, 
+                          include_caution, include_backmatter, include_advertisement)
+
+    # Update navigation
+    nav_path = os.path.join(tmpdir, NAV_FILE)
     if os.path.exists(nav_path):
         update_navigation(nav_path, chapters_info)
 
-    # build final epub
-    out_path = out_epub
-    make_epub_from_template(tmpdir, out_path)
 
-    print(f"wrote {out_path}")
+def main(argv: list[str]) -> int:
+    """Main entry point for yaml2epub conversion.
+
+    Args:
+        argv (list[str]): Command-line arguments.
+
+    Returns:
+        int: Exit code (0 for success, 1-2 for error).
+    """
+    if len(argv) < 2:
+        print("usage: yaml2epub.py metadata.yaml [out.epub]")
+        return 2
+    meta_path = argv[1]
+    out_epub = argv[2] if len(argv) >= 3 else "out.epub"
+
+    if not os.path.exists(meta_path):
+        print(f"metadata file not found: {meta_path}")
+        return 1
+
+    with open(meta_path, "r", encoding="utf-8") as f:
+        meta = yaml.safe_load(f) or {}
+
+    # Set up temporary directory
+    tmpdir = tempfile.mkdtemp(prefix="yaml2epub_")
+    try:
+        _setup_temporary_directory(tmpdir)
+
+        # Process images
+        _process_images(tmpdir, meta, meta_path)
+
+        # Generate document content and chapters
+        include_advertisement, include_backmatter, chapters_info = _generate_document_content(
+            tmpdir, meta, meta_path
+        )
+
+        # Determine frontmatter and caution inclusion
+        docs = meta.get("documents", {}) or {}
+        include_frontmatter = bool(docs.get("frontmatter"))
+        include_caution = bool(meta.get("caution"))
+
+        # Update OPF manifest/spine and navigation
+        _update_manifest_and_spine(
+            tmpdir, meta, chapters_info,
+            include_frontmatter, include_caution,
+            include_backmatter, include_advertisement
+        )
+
+        # Build final EPUB
+        make_epub_from_template(tmpdir, out_epub)
+        print(f"wrote {out_epub}")
+
+    finally:
+        # Clean up temporary directory
+        try:
+            shutil.rmtree(tmpdir)
+        except Exception:
+            pass
+
     return 0
 
 
