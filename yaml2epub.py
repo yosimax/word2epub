@@ -106,7 +106,28 @@ def _apply_body_template(template: str | None, body_html: str, body_class: str |
     return new_template[:start] + "\n" + body_html + "\n" + new_template[end:]
 
 
-def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str) -> None:
+def _insert_document_section(
+    xhtml_dir: str,
+    spec: dict | None,
+    meta_dir: str,
+    image_dir: str,
+    output_filename: str,
+    label_default: str = "document",
+    template_filename: str = "p-fmatter-001.xhtml"
+) -> None:
+    """Insert a document section (frontmatter, backmatter, etc.).
+
+    Common implementation for document sections with similar structure.
+
+    Args:
+        xhtml_dir (str): Directory containing XHTML files.
+        spec (dict | None): Specification for the document section.
+        meta_dir (str): Directory containing metadata files.
+        image_dir (str): Directory to store images.
+        output_filename (str): Output XHTML filename (e.g., "p-fmatter-001.xhtml").
+        label_default (str): Default label for the section if not specified.
+        template_filename (str): Template XHTML filename to use as base.
+    """
     if not spec:
         return
     text = spec.get("text") if isinstance(spec, dict) else spec
@@ -126,7 +147,7 @@ def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_d
 
     # prepare body
     body_html = ""
-    label = "frontmatter"
+    label = label_default
     # default direction/body_class from spec (if provided)
     spec_direction = spec.get("direction") if isinstance(spec, dict) else None
     spec_body_class = spec.get("body_class") if isinstance(spec, dict) else None
@@ -180,9 +201,9 @@ def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_d
     if image_tags:
         body_html = "\n".join(image_tags) + "\n" + body_html
 
-    # write into p-fmatter-001.xhtml using template
-    tpl = os.path.join(xhtml_dir, "p-fmatter-001.xhtml")
-    target = os.path.join(xhtml_dir, "p-fmatter-001.xhtml")
+    # write using template
+    tpl = os.path.join(xhtml_dir, template_filename)
+    target = os.path.join(xhtml_dir, output_filename)
     template = read_text_file(tpl) if os.path.exists(tpl) else None
     if template:
         new = _apply_body_template(template, body_html, body_class, direction)
@@ -193,91 +214,47 @@ def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_d
         write_text_file(target, new)
 
 
-def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str) -> None:
-    """Create a backmatter page using the same template as frontmatter.
+def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str) -> None:
+    """Insert frontmatter content into the EPUB.
 
-    The interface is identical to :func:`insert_frontmatter`.  The result is
-    written to ``p-bmatter-001.xhtml`` and is intended to be inserted after
-    the main contents and before the colophon in the spine.
+    Args:
+        xhtml_dir (str): Directory containing XHTML files.
+        spec (dict | None): Frontmatter specification.
+        meta_dir (str): Directory containing metadata files.
+        image_dir (str): Directory to store images.
     """
-    if not spec:
-        return
-    text = spec.get("text") if isinstance(spec, dict) else spec
-    img_spec = spec.get("image") if isinstance(spec, dict) else None
-    images: list[str] = []
-    if img_spec:
-        if isinstance(img_spec, list):
-            images = img_spec
-        else:
-            images = [img_spec]
+    _insert_document_section(
+        xhtml_dir,
+        spec,
+        meta_dir,
+        image_dir,
+        output_filename="p-fmatter-001.xhtml",
+        label_default="frontmatter",
+        template_filename="p-fmatter-001.xhtml"
+    )
 
-    # resolve paths
-    text_path = None
-    if text:
-        text_path = text if os.path.isabs(text) else os.path.join(meta_dir, text)
 
-    # prepare body
-    body_html = ""
-    label = "backmatter"
-    spec_direction = spec.get("direction") if isinstance(spec, dict) else None
-    spec_body_class = spec.get("body_class") if isinstance(spec, dict) else None
-    direction = None
-    body_class = None
+def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str) -> None:
+    """Insert backmatter content into the EPUB.
 
-    if text_path and os.path.exists(text_path):
-        if text_path.lower().endswith((".yaml", ".yml")):
-            with open(text_path, "r", encoding="utf-8") as f:
-                try:
-                    data = yaml.safe_load(f) or {}
-                except Exception:
-                    data = {}
-            direction = data.get("direction") or spec_direction
-            body_class = data.get("body_class") or spec_body_class
-            contents = data.get("contents", "")
-            paras = [p.strip() for p in contents.split("\n\n") if p.strip()]
-            if paras:
-                body_html = f'<p class="indent-1em">{paras[0].replace("\n", "<br/>")}</p>\n' + "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras[1:])
-            if "page_title" in data:
-                body_html = f"<p class=\"tobira-midashi\">{data['page_title']}</p>\n" + body_html
-                label = data.get("page_title")
-        elif text_path.lower().endswith((".html", ".xhtml", ".htm")):
-            body_html = read_text_file(text_path)
-            label = os.path.splitext(os.path.basename(text_path))[0]
-            direction = spec_direction
-            body_class = spec_body_class
-        else:
-            txt = read_text_file(text_path)
-            paras = [ln.strip() for ln in txt.split("\n\n") if ln.strip()]
-            body_html = "\n".join(f"<p>{p}</p>" for p in paras)
-            label = os.path.splitext(os.path.basename(text_path))[0]
-            direction = spec_direction
-            body_class = spec_body_class
-    else:
-        direction = spec_direction
-        body_class = spec_body_class
+    backmatter is written to ``p-bmatter-001.xhtml`` and is intended to be inserted after
+    the main contents and before the colophon in the spine.
 
-    # add any images if present - collect in order before prepending
-    image_tags = []
-    for image in images:
-        img_path = image if os.path.isabs(image) else os.path.join(meta_dir, image)
-        if os.path.exists(img_path):
-            shutil.copy2(img_path, os.path.join(image_dir, os.path.basename(img_path)))
-            img_tag = f'<p><img class="fit" src="../image/{os.path.basename(img_path)}" alt=""/></p>'
-            image_tags.append(img_tag)
-    # prepend all images in original order
-    if image_tags:
-        body_html = "\n".join(image_tags) + "\n" + body_html
-
-    # use frontmatter template for backmatter as requested
-    tpl = os.path.join(xhtml_dir, "p-fmatter-001.xhtml")
-    target = os.path.join(xhtml_dir, "p-bmatter-001.xhtml")
-    template = read_text_file(tpl) if os.path.exists(tpl) else None
-    if template:
-        new = _apply_body_template(template, body_html, body_class, direction)
-        write_text_file(target, new)
-    else:
-        new = _apply_body_template(None, body_html, body_class, direction)
-        write_text_file(target, new)
+    Args:
+        xhtml_dir (str): Directory containing XHTML files.
+        spec (dict | None): Backmatter specification.
+        meta_dir (str): Directory containing metadata files.
+        image_dir (str): Directory to store images.
+    """
+    _insert_document_section(
+        xhtml_dir,
+        spec,
+        meta_dir,
+        image_dir,
+        output_filename="p-bmatter-001.xhtml",
+        label_default="backmatter",
+        template_filename="p-fmatter-001.xhtml"
+    )
 
 
 def insert_caution(xhtml_dir: str, caution_text: str) -> None:
