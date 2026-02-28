@@ -234,7 +234,7 @@ def _insert_document_section(
             paras = [p.strip() for p in contents.split("\n\n") if p.strip()]
             # first paragraph indented
             if paras:
-                body_html = f'<p class="indent-1em">{paras[0].replace("\n", "<br/>")}</p>\n' + "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras[1:])
+                body_html = f'<p>{paras[0].replace("\n", "<br/>")}</p>\n' + "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras[1:])
             if "page_title" in data:
                 body_html = f"<p class=\"tobira-midashi\">{data['page_title']}</p>\n" + body_html
                 label = data.get("page_title")
@@ -574,7 +574,7 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str]) -> list[dict]:
                 paras = [p.strip() for p in contents.split("\n\n") if p.strip()]
                 # first paragraph indented
                 if paras:
-                    body_html = f'<p class="indent-1em">{paras[0].replace("\n", "<br/>")}</p>\n' + "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras[1:])
+                    body_html = f'<p>{paras[0].replace("\n", "<br/>")}</p>\n' + "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras[1:])
                 else:
                     body_html = ""
                 # add a heading if page_title exists
