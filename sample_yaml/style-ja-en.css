@@ -1,0 +1,63 @@
+@charset "UTF-8";
+/* -------------------------------------------------------------
+ 日本語と英語のスタイル指定
+<details>
+<summary class="ja">例</summary>
+<p class="en">Sample. </p>
+</details>
+<details>
+---------------------------------------------------------------- */
+
+/* details maker(icon)を非表示 */
+summary {
+    list-style: none;
+    cursor: pointer;
+}
+summary::-webkit-details-marker {
+    display: none;
+}
+
+/* 1字字下げ */
+summary.ja {
+  margin-left: 1em;
+  text-indent:  1em;
+}
+
+/* 字下げ無  */
+summary.ja0 {
+  margin-left: 1em;
+  text-indent:  0;
+}
+
+/* 4字下げ */
+summary.ja4 {
+  margin-left: 1em;
+  text-indent:  4em;
+}
+
+/* 1字字下げ */
+p.en {
+  font-family: "Times New Roman", serif;
+  font-size: 0.9em;
+  margin-bottom: 0.2em;
+  text-indent:  1em;
+  color: #0000ff;
+}
+
+/* 字下げ無 */
+p.en0 {
+  font-family: "Times New Roman", serif;
+  font-size: 0.9em;
+  margin-bottom: 0.2em;
+  text-indent:  0;
+  color: #0000ff;
+}
+
+/* 4字字下げ */
+p.en4 {
+  font-family: "Times New Roman", serif;
+  font-size: 0.9em;
+  margin-bottom: 0.2em;
+  text-indent:  4em;
+  color: #0000ff;
+}

@@ -33,3 +33,5 @@ documents:
     image: 
       - sample_textmap1.jpg
       - sample_textmap2.jpg
+stylesheets:
+  - style-ja-en.css

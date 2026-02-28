@@ -83,6 +83,42 @@ def replace_title_in_xhtml(dirpath: str, title: str) -> None:
         write_text_file(p, s)
 
 
+def add_stylesheets_to_xhtml(xhtml_dir: str, styles: list[str]) -> None:
+    """Insert <link> tags for given stylesheet filenames into all xhtml files in xhtml_dir.
+
+    `styles` is a list of stylesheet basenames (e.g. ['style-ja-en.css']). Links are added
+    with href "../style/{filename}" so that xhtml under `item/xhtml` references files
+    under `item/style`.
+    """
+    if not styles:
+        return
+    # ensure basenames
+    styles = [os.path.basename(s) for s in styles if s]
+    try:
+        for name in os.listdir(xhtml_dir):
+            if not name.endswith(".xhtml"):
+                continue
+            p = os.path.join(xhtml_dir, name)
+            try:
+                s = read_text_file(p)
+            except Exception:
+                continue
+            # build link tags for missing styles
+            links = []
+            for fn in styles:
+                href = f'../style/{fn}'
+                if href not in s:
+                    links.append(f'<link rel="stylesheet" type="text/css" href="{href}"/>' )
+            if not links:
+                continue
+            # insert before </head>
+            if "</head>" in s:
+                s = s.replace("</head>", "\n" + "\n".join(links) + "\n</head>")
+                write_text_file(p, s)
+    except Exception:
+        pass
+
+
 def _apply_body_template(template: str | None, body_html: str, body_class: str | None, direction: str | None) -> str:
     """テンプレートの <body ...> 開始タグに class/style を付与し、body 内に body_html を挿入して返す。
     body_class が None の場合はデフォルトで 'p-text' を付与する。
@@ -650,9 +686,38 @@ def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], inc
 
     # styles
     new_manifest.append(ET.Comment(" style "))
+    # preserve stylesheet items from the template manifest
+    style_added_hrefs = set()
+    used_style_ids = set()
     for href, it in existing_items.items():
         if href.startswith("style/") or it.get("media-type") == "text/css":
             new_manifest.append(it)
+            style_added_hrefs.add(href)
+            if it.get("id"):
+                used_style_ids.add(it.get("id"))
+    # also scan the actual style folder on disk and add any css files not present in manifest
+    style_folder = os.path.join(os.path.dirname(opf_path), "style")
+    if os.path.isdir(style_folder):
+        files = sorted(os.listdir(style_folder))
+        for fn in files:
+            if not fn.lower().endswith(".css"):
+                continue
+            href = f"style/{fn}"
+            if href in style_added_hrefs:
+                continue
+            base = os.path.splitext(fn)[0]
+            item_id = re.sub("[^0-9A-Za-z_-]", "-", base)
+            if not item_id:
+                item_id = f"style-{uuid.uuid4().hex[:8]}"
+            # ensure unique id
+            orig_id = item_id
+            i = 1
+            while item_id in used_style_ids:
+                item_id = f"{orig_id}-{i}"
+                i += 1
+            used_style_ids.add(item_id)
+            el = make_item(item_id, href, "text/css")
+            new_manifest.append(el)
 
     # images: scan output image directory and add any images present
     new_manifest.append(ET.Comment(" image "))
@@ -1041,6 +1106,27 @@ def _generate_document_content(tmpdir: str, meta: dict, meta_path: str) -> tuple
             shutil.copy2(cover_src, back_src)
     except Exception:
         pass
+
+    # Copy any stylesheets specified in metadata into item/style and inject links
+    copied_styles: list[str] = []
+    styles_spec = meta.get("stylesheets") or []
+    if styles_spec:
+        style_dir = os.path.join(tmpdir, "item", "style")
+        os.makedirs(style_dir, exist_ok=True)
+        for s in styles_spec:
+            if not s:
+                continue
+            src = s if os.path.isabs(s) else os.path.join(meta_dir, s)
+            if os.path.exists(src):
+                try:
+                    dst = os.path.join(style_dir, os.path.basename(src))
+                    shutil.copy2(src, dst)
+                    copied_styles.append(os.path.basename(src))
+                except Exception:
+                    pass
+    # inject stylesheet links into xhtml files (if any copied)
+    if copied_styles:
+        add_stylesheets_to_xhtml(xhtml_dir, copied_styles)
 
     # Insert documents: frontmatter/caution/backmatter/colophon/advertisement
     docs = meta.get("documents", {}) or {}
