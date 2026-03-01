@@ -83,6 +83,42 @@ def replace_title_in_xhtml(dirpath: str, title: str) -> None:
         write_text_file(p, s)
 
 
+def add_stylesheets_to_xhtml(xhtml_dir: str, styles: list[str]) -> None:
+    """Insert <link> tags for given stylesheet filenames into all xhtml files in xhtml_dir.
+
+    `styles` is a list of stylesheet basenames (e.g. ['style-ja-en.css']). Links are added
+    with href "../style/{filename}" so that xhtml under `item/xhtml` references files
+    under `item/style`.
+    """
+    if not styles:
+        return
+    # ensure basenames
+    styles = [os.path.basename(s) for s in styles if s]
+    try:
+        for name in os.listdir(xhtml_dir):
+            if not name.endswith(".xhtml"):
+                continue
+            p = os.path.join(xhtml_dir, name)
+            try:
+                s = read_text_file(p)
+            except Exception:
+                continue
+            # build link tags for missing styles
+            links = []
+            for fn in styles:
+                href = f'../style/{fn}'
+                if href not in s:
+                    links.append(f'<link rel="stylesheet" type="text/css" href="{href}"/>' )
+            if not links:
+                continue
+            # insert before </head>
+            if "</head>" in s:
+                s = s.replace("</head>", "\n" + "\n".join(links) + "\n</head>")
+                write_text_file(p, s)
+    except Exception:
+        pass
+
+
 def _apply_body_template(template: str | None, body_html: str, body_class: str | None, direction: str | None) -> str:
     """テンプレートの <body ...> 開始タグに class/style を付与し、body 内に body_html を挿入して返す。
     body_class が None の場合はデフォルトで 'p-text' を付与する。
@@ -143,7 +179,8 @@ def _insert_document_section(
     image_dir: str,
     output_filename: str,
     label_default: str = "document",
-    template_filename: str = "p-fmatter-001.xhtml"
+    template_filename: str = "p-fmatter-001.xhtml",
+    br_convert: bool = False,
 ) -> None:
     """Insert a document section (frontmatter, backmatter, etc.).
 
@@ -195,10 +232,14 @@ def _insert_document_section(
             direction = data.get("direction") or spec_direction
             body_class = data.get("body_class") or spec_body_class
             contents = data.get("contents", "")
+            # split into paragraphs by blank lines
             paras = [p.strip() for p in contents.split("\n\n") if p.strip()]
+            if br_convert:
+                # convert remaining single-line breaks to <br/>
+                paras = [p.replace("\n", "<br/>") for p in paras]
             # first paragraph indented
             if paras:
-                body_html = f'<p class="indent-1em">{paras[0].replace("\n", "<br/>")}</p>\n' + "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras[1:])
+                body_html = f'<p>{paras[0]}</p>\n' + "\n".join(f"<p>{p}</p>" for p in paras[1:])
             if "page_title" in data:
                 body_html = f"<p class=\"tobira-midashi\">{data['page_title']}</p>\n" + body_html
                 label = data.get("page_title")
@@ -211,6 +252,8 @@ def _insert_document_section(
         else:
             txt = read_text_file(text_path)
             paras = [ln.strip() for ln in txt.split("\n\n") if ln.strip()]
+            if br_convert:
+                paras = [p.replace("\n", "<br/>") for p in paras]
             body_html = "\n".join(f"<p>{p}</p>" for p in paras)
             label = os.path.splitext(os.path.basename(text_path))[0]
             direction = spec_direction
@@ -244,7 +287,7 @@ def _insert_document_section(
         write_text_file(target, new)
 
 
-def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str) -> None:
+def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str, br_convert: bool = False) -> None:
     """Insert frontmatter content into the EPUB.
 
     Args:
@@ -252,6 +295,7 @@ def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_d
         spec (dict | None): Frontmatter specification.
         meta_dir (str): Directory containing metadata files.
         image_dir (str): Directory to store images.
+        br_convert (bool): Replace single line breaks in contents with <br/>.
     """
     _insert_document_section(
         xhtml_dir,
@@ -260,11 +304,12 @@ def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_d
         image_dir,
         output_filename="p-fmatter-001.xhtml",
         label_default="frontmatter",
-        template_filename="p-fmatter-001.xhtml"
+        template_filename="p-fmatter-001.xhtml",
+        br_convert=br_convert,
     )
 
 
-def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str) -> None:
+def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str, br_convert: bool = False) -> None:
     """Insert backmatter content into the EPUB.
 
     backmatter is written to ``p-bmatter-001.xhtml`` and is intended to be inserted after
@@ -275,6 +320,7 @@ def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_di
         spec (dict | None): Backmatter specification.
         meta_dir (str): Directory containing metadata files.
         image_dir (str): Directory to store images.
+        br_convert (bool): Replace single line breaks in contents with <br/>.
     """
     _insert_document_section(
         xhtml_dir,
@@ -283,7 +329,8 @@ def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_di
         image_dir,
         output_filename="p-bmatter-001.xhtml",
         label_default="backmatter",
-        template_filename="p-fmatter-001.xhtml"
+        template_filename="p-fmatter-001.xhtml",
+        br_convert=br_convert,
     )
 
 
@@ -501,7 +548,7 @@ def _replace_title_in_string(s: str, title: str) -> str:
     return s[: gt + 1] + title + s[end:]
 
 
-def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str]) -> list[dict]:
+def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str], br_convert: bool = False) -> list[dict]:
     """Generate xhtml files for arbitrary number of chapters.
 
     Returns list of dicts: {"id": "p-001", "href": "xhtml/p-001.xhtml", "label": "title"}
@@ -536,9 +583,11 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str]) -> list[dict]:
                 body_class = data.get("body_class")
                 # split into paragraphs by blank lines
                 paras = [p.strip() for p in contents.split("\n\n") if p.strip()]
+                if br_convert:
+                    paras = [p.replace("\n", "<br/>") for p in paras]
                 # first paragraph indented
                 if paras:
-                    body_html = f'<p class="indent-1em">{paras[0].replace("\n", "<br/>")}</p>\n' + "\n".join(f"<p>{p.replace('\n', '<br/>')}</p>" for p in paras[1:])
+                    body_html = f'<p>{paras[0]}</p>\n' + "\n".join(f"<p>{p}</p>" for p in paras[1:])
                 else:
                     body_html = ""
                 # add a heading if page_title exists
@@ -552,6 +601,8 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str]) -> list[dict]:
                 # plain text
                 txt = read_text_file(chap)
                 paras = [ln.strip() for ln in txt.split("\n\n") if ln.strip()]
+                if br_convert:
+                    paras = [p.replace("\n", "<br/>") for p in paras]
                 body_html = "\n".join(f"<p>{p}</p>" for p in paras)
                 label = os.path.splitext(os.path.basename(chap))[0]
         else:
@@ -650,9 +701,38 @@ def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], inc
 
     # styles
     new_manifest.append(ET.Comment(" style "))
+    # preserve stylesheet items from the template manifest
+    style_added_hrefs = set()
+    used_style_ids = set()
     for href, it in existing_items.items():
         if href.startswith("style/") or it.get("media-type") == "text/css":
             new_manifest.append(it)
+            style_added_hrefs.add(href)
+            if it.get("id"):
+                used_style_ids.add(it.get("id"))
+    # also scan the actual style folder on disk and add any css files not present in manifest
+    style_folder = os.path.join(os.path.dirname(opf_path), "style")
+    if os.path.isdir(style_folder):
+        files = sorted(os.listdir(style_folder))
+        for fn in files:
+            if not fn.lower().endswith(".css"):
+                continue
+            href = f"style/{fn}"
+            if href in style_added_hrefs:
+                continue
+            base = os.path.splitext(fn)[0]
+            item_id = re.sub("[^0-9A-Za-z_-]", "-", base)
+            if not item_id:
+                item_id = f"style-{uuid.uuid4().hex[:8]}"
+            # ensure unique id
+            orig_id = item_id
+            i = 1
+            while item_id in used_style_ids:
+                item_id = f"{orig_id}-{i}"
+                i += 1
+            used_style_ids.add(item_id)
+            el = make_item(item_id, href, "text/css")
+            new_manifest.append(el)
 
     # images: scan output image directory and add any images present
     new_manifest.append(ET.Comment(" image "))
@@ -979,6 +1059,20 @@ def _process_images(tmpdir: str, meta: dict, meta_path: str) -> tuple[bool, bool
             shutil.copy2(src_path, os.path.join(image_dir, os.path.basename(src_path)))
             backcover_provided = True
 
+    # In some workflows the XHTML for the back cover is generated later (see
+    # `_generate_document_content`).  `_process_images` wants to update the
+    # <img> element in that file, so make sure a copy of the cover template
+    # exists before attempting to modify it.  If `_generate_document_content`
+    # later creates the backcover.xhtml again the `not os.path.exists(back_file)`
+    # guard will prevent overwriting our updated copy.
+    if backcover_provided:
+        try:
+            if os.path.exists(cover_file) and not os.path.exists(back_file):
+                shutil.copy2(cover_file, back_file)
+        except Exception:
+            # best effort; failure here is non-fatal
+            pass
+
     # Remove p-cover.xhtml/p-backcover.xhtml if corresponding images not provided
     try:
         if not cover_provided and os.path.exists(cover_file):
@@ -1042,14 +1136,38 @@ def _generate_document_content(tmpdir: str, meta: dict, meta_path: str) -> tuple
     except Exception:
         pass
 
+    # Copy any stylesheets specified in metadata into item/style and inject links
+    copied_styles: list[str] = []
+    styles_spec = meta.get("stylesheets") or []
+    if styles_spec:
+        style_dir = os.path.join(tmpdir, "item", "style")
+        os.makedirs(style_dir, exist_ok=True)
+        for s in styles_spec:
+            if not s:
+                continue
+            src = s if os.path.isabs(s) else os.path.join(meta_dir, s)
+            if os.path.exists(src):
+                try:
+                    dst = os.path.join(style_dir, os.path.basename(src))
+                    shutil.copy2(src, dst)
+                    copied_styles.append(os.path.basename(src))
+                except Exception:
+                    pass
+    # inject stylesheet links into xhtml files (if any copied)
+    if copied_styles:
+        add_stylesheets_to_xhtml(xhtml_dir, copied_styles)
+
     # Insert documents: frontmatter/caution/backmatter/colophon/advertisement
     docs = meta.get("documents", {}) or {}
     front = docs.get("frontmatter")
     back = docs.get("backmatter")
 
-    insert_frontmatter(xhtml_dir, front, meta_dir, image_dir)
+    # br_convert flag from metadata controls paragraph breaks inside YAML contents
+    br_flag = bool(meta.get("br_convert"))
+
+    insert_frontmatter(xhtml_dir, front, meta_dir, image_dir, br_convert=br_flag)
     insert_caution(xhtml_dir, meta.get("caution"))
-    insert_backmatter(xhtml_dir, back, meta_dir, image_dir)
+    insert_backmatter(xhtml_dir, back, meta_dir, image_dir, br_convert=br_flag)
     insert_colophon(xhtml_dir, meta.get("colophon"), meta_dir, meta)
     insert_advertisement(xhtml_dir, meta.get("advertisement"), meta_dir, meta)
 
@@ -1065,7 +1183,8 @@ def _generate_document_content(tmpdir: str, meta: dict, meta_path: str) -> tuple
     chapters = [c for c in chapters if c]
     # Resolve chapter paths relative to metadata file
     chapters = [c if os.path.isabs(c) else os.path.join(meta_dir, c) for c in chapters]
-    chapters_info = generate_chapter_xhtmls(xhtml_dir, chapters)
+    br_flag = bool(meta.get("br_convert"))
+    chapters_info = generate_chapter_xhtmls(xhtml_dir, chapters, br_flag)
 
     # Remove unused p-XXX.xhtml files from template that were not generated
     try:

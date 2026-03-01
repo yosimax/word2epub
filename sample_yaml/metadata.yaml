@@ -18,6 +18,7 @@ colophon:
   text: colophon.yaml
 advertisement:
   text: NONE
+br_convert: true
 documents:
   frontmatter:
     text: frontmatter.yaml
@@ -33,3 +34,5 @@ documents:
     image: 
       - sample_textmap1.jpg
       - sample_textmap2.jpg
+stylesheets:
+  - style-ja-en.css
