@@ -179,7 +179,8 @@ def _insert_document_section(
     image_dir: str,
     output_filename: str,
     label_default: str = "document",
-    template_filename: str = "p-fmatter-001.xhtml"
+    template_filename: str = "p-fmatter-001.xhtml",
+    br_convert: bool = False,
 ) -> None:
     """Insert a document section (frontmatter, backmatter, etc.).
 
@@ -231,7 +232,11 @@ def _insert_document_section(
             direction = data.get("direction") or spec_direction
             body_class = data.get("body_class") or spec_body_class
             contents = data.get("contents", "")
+            # split into paragraphs by blank lines
             paras = [p.strip() for p in contents.split("\n\n") if p.strip()]
+            if br_convert:
+                # convert remaining single-line breaks to <br/>
+                paras = [p.replace("\n", "<br/>") for p in paras]
             # first paragraph indented
             if paras:
                 body_html = f'<p>{paras[0]}</p>\n' + "\n".join(f"<p>{p}</p>" for p in paras[1:])
@@ -247,6 +252,8 @@ def _insert_document_section(
         else:
             txt = read_text_file(text_path)
             paras = [ln.strip() for ln in txt.split("\n\n") if ln.strip()]
+            if br_convert:
+                paras = [p.replace("\n", "<br/>") for p in paras]
             body_html = "\n".join(f"<p>{p}</p>" for p in paras)
             label = os.path.splitext(os.path.basename(text_path))[0]
             direction = spec_direction
@@ -280,7 +287,7 @@ def _insert_document_section(
         write_text_file(target, new)
 
 
-def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str) -> None:
+def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str, br_convert: bool = False) -> None:
     """Insert frontmatter content into the EPUB.
 
     Args:
@@ -288,6 +295,7 @@ def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_d
         spec (dict | None): Frontmatter specification.
         meta_dir (str): Directory containing metadata files.
         image_dir (str): Directory to store images.
+        br_convert (bool): Replace single line breaks in contents with <br/>.
     """
     _insert_document_section(
         xhtml_dir,
@@ -296,11 +304,12 @@ def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_d
         image_dir,
         output_filename="p-fmatter-001.xhtml",
         label_default="frontmatter",
-        template_filename="p-fmatter-001.xhtml"
+        template_filename="p-fmatter-001.xhtml",
+        br_convert=br_convert,
     )
 
 
-def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str) -> None:
+def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str, br_convert: bool = False) -> None:
     """Insert backmatter content into the EPUB.
 
     backmatter is written to ``p-bmatter-001.xhtml`` and is intended to be inserted after
@@ -311,6 +320,7 @@ def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_di
         spec (dict | None): Backmatter specification.
         meta_dir (str): Directory containing metadata files.
         image_dir (str): Directory to store images.
+        br_convert (bool): Replace single line breaks in contents with <br/>.
     """
     _insert_document_section(
         xhtml_dir,
@@ -319,7 +329,8 @@ def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_di
         image_dir,
         output_filename="p-bmatter-001.xhtml",
         label_default="backmatter",
-        template_filename="p-fmatter-001.xhtml"
+        template_filename="p-fmatter-001.xhtml",
+        br_convert=br_convert,
     )
 
 
@@ -537,7 +548,7 @@ def _replace_title_in_string(s: str, title: str) -> str:
     return s[: gt + 1] + title + s[end:]
 
 
-def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str]) -> list[dict]:
+def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str], br_convert: bool = False) -> list[dict]:
     """Generate xhtml files for arbitrary number of chapters.
 
     Returns list of dicts: {"id": "p-001", "href": "xhtml/p-001.xhtml", "label": "title"}
@@ -572,6 +583,8 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str]) -> list[dict]:
                 body_class = data.get("body_class")
                 # split into paragraphs by blank lines
                 paras = [p.strip() for p in contents.split("\n\n") if p.strip()]
+                if br_convert:
+                    paras = [p.replace("\n", "<br/>") for p in paras]
                 # first paragraph indented
                 if paras:
                     body_html = f'<p>{paras[0]}</p>\n' + "\n".join(f"<p>{p}</p>" for p in paras[1:])
@@ -588,6 +601,8 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str]) -> list[dict]:
                 # plain text
                 txt = read_text_file(chap)
                 paras = [ln.strip() for ln in txt.split("\n\n") if ln.strip()]
+                if br_convert:
+                    paras = [p.replace("\n", "<br/>") for p in paras]
                 body_html = "\n".join(f"<p>{p}</p>" for p in paras)
                 label = os.path.splitext(os.path.basename(chap))[0]
         else:
@@ -1044,6 +1059,20 @@ def _process_images(tmpdir: str, meta: dict, meta_path: str) -> tuple[bool, bool
             shutil.copy2(src_path, os.path.join(image_dir, os.path.basename(src_path)))
             backcover_provided = True
 
+    # In some workflows the XHTML for the back cover is generated later (see
+    # `_generate_document_content`).  `_process_images` wants to update the
+    # <img> element in that file, so make sure a copy of the cover template
+    # exists before attempting to modify it.  If `_generate_document_content`
+    # later creates the backcover.xhtml again the `not os.path.exists(back_file)`
+    # guard will prevent overwriting our updated copy.
+    if backcover_provided:
+        try:
+            if os.path.exists(cover_file) and not os.path.exists(back_file):
+                shutil.copy2(cover_file, back_file)
+        except Exception:
+            # best effort; failure here is non-fatal
+            pass
+
     # Remove p-cover.xhtml/p-backcover.xhtml if corresponding images not provided
     try:
         if not cover_provided and os.path.exists(cover_file):
@@ -1133,9 +1162,12 @@ def _generate_document_content(tmpdir: str, meta: dict, meta_path: str) -> tuple
     front = docs.get("frontmatter")
     back = docs.get("backmatter")
 
-    insert_frontmatter(xhtml_dir, front, meta_dir, image_dir)
+    # br_convert flag from metadata controls paragraph breaks inside YAML contents
+    br_flag = bool(meta.get("br_convert"))
+
+    insert_frontmatter(xhtml_dir, front, meta_dir, image_dir, br_convert=br_flag)
     insert_caution(xhtml_dir, meta.get("caution"))
-    insert_backmatter(xhtml_dir, back, meta_dir, image_dir)
+    insert_backmatter(xhtml_dir, back, meta_dir, image_dir, br_convert=br_flag)
     insert_colophon(xhtml_dir, meta.get("colophon"), meta_dir, meta)
     insert_advertisement(xhtml_dir, meta.get("advertisement"), meta_dir, meta)
 
@@ -1151,7 +1183,8 @@ def _generate_document_content(tmpdir: str, meta: dict, meta_path: str) -> tuple
     chapters = [c for c in chapters if c]
     # Resolve chapter paths relative to metadata file
     chapters = [c if os.path.isabs(c) else os.path.join(meta_dir, c) for c in chapters]
-    chapters_info = generate_chapter_xhtmls(xhtml_dir, chapters)
+    br_flag = bool(meta.get("br_convert"))
+    chapters_info = generate_chapter_xhtmls(xhtml_dir, chapters, br_flag)
 
     # Remove unused p-XXX.xhtml files from template that were not generated
     try:

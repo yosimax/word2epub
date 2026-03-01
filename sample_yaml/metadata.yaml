@@ -18,6 +18,7 @@ colophon:
   text: colophon.yaml
 advertisement:
   text: NONE
+br_convert: true
 documents:
   frontmatter:
     text: frontmatter.yaml
