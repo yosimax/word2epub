@@ -15,6 +15,7 @@ import shutil
 import tempfile
 import zipfile
 import uuid
+import gzip
 from datetime import datetime, timezone
 import re
 
@@ -267,8 +268,20 @@ def _insert_document_section(
     for image in images:
         img_path = image if os.path.isabs(image) else os.path.join(meta_dir, image)
         if os.path.exists(img_path):
-            shutil.copy2(img_path, os.path.join(image_dir, os.path.basename(img_path)))
-            img_tag = f'<p><img class="fit" src="../image/{os.path.basename(img_path)}" alt=""/></p>'
+            basename = os.path.basename(img_path)
+            dest_path = os.path.join(image_dir, basename)
+            # Handle SVGZ files: decompress to SVG
+            if basename.lower().endswith('.svgz'):
+                svg_basename = basename[:-1]  # remove 'z'
+                dest_path = os.path.join(image_dir, svg_basename)
+                with gzip.open(img_path, 'rb') as f_in:
+                    with open(dest_path, 'wb') as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                img_src = f'../image/{svg_basename}'
+            else:
+                shutil.copy2(img_path, dest_path)
+                img_src = f'../image/{basename}'
+            img_tag = f'<p><img class="fit" src="{img_src}" alt=""/></p>'
             image_tags.append(img_tag)
     # prepend all images in original order
     if image_tags:
@@ -1049,14 +1062,34 @@ def _process_images(tmpdir: str, meta: dict, meta_path: str) -> tuple[bool, bool
         src = images["cover"]
         src_path = src if os.path.isabs(src) else os.path.join(meta_dir, src)
         if os.path.exists(src_path):
-            shutil.copy2(src_path, os.path.join(image_dir, os.path.basename(src_path)))
+            basename = os.path.basename(src_path)
+            dest_path = os.path.join(image_dir, basename)
+            # Handle SVGZ files: decompress to SVG
+            if basename.lower().endswith('.svgz'):
+                svg_basename = basename[:-1]  # remove 'z'
+                dest_path = os.path.join(image_dir, svg_basename)
+                with gzip.open(src_path, 'rb') as f_in:
+                    with open(dest_path, 'wb') as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+            else:
+                shutil.copy2(src_path, dest_path)
             cover_provided = True
 
     if "backcover" in images:
         src = images["backcover"]
         src_path = src if os.path.isabs(src) else os.path.join(meta_dir, src)
         if os.path.exists(src_path):
-            shutil.copy2(src_path, os.path.join(image_dir, os.path.basename(src_path)))
+            basename = os.path.basename(src_path)
+            dest_path = os.path.join(image_dir, basename)
+            # Handle SVGZ files: decompress to SVG
+            if basename.lower().endswith('.svgz'):
+                svg_basename = basename[:-1]  # remove 'z'
+                dest_path = os.path.join(image_dir, svg_basename)
+                with gzip.open(src_path, 'rb') as f_in:
+                    with open(dest_path, 'wb') as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+            else:
+                shutil.copy2(src_path, dest_path)
             backcover_provided = True
 
     # In some workflows the XHTML for the back cover is generated later (see
@@ -1085,13 +1118,19 @@ def _process_images(tmpdir: str, meta: dict, meta_path: str) -> tuple[bool, bool
     # Update p-cover.xhtml/p-backcover.xhtml image src to actual filenames
     try:
         if cover_provided:
-            cover_fname = os.path.basename(images.get("cover"))
+            cover_src = images.get("cover")
+            cover_fname = os.path.basename(cover_src)
+            if cover_fname.lower().endswith('.svgz'):
+                cover_fname = cover_fname[:-1]  # remove 'z'
             if cover_fname and os.path.exists(os.path.join(image_dir, cover_fname)) and os.path.exists(cover_file):
                 s = read_text_file(cover_file)
                 s = re.sub(r'src="\.\./image/[^\"]+"', f'src="../image/{cover_fname}"', s)
                 write_text_file(cover_file, s)
         if backcover_provided:
-            back_fname = os.path.basename(images.get("backcover"))
+            back_src = images.get("backcover")
+            back_fname = os.path.basename(back_src)
+            if back_fname.lower().endswith('.svgz'):
+                back_fname = back_fname[:-1]  # remove 'z'
             if back_fname and os.path.exists(os.path.join(image_dir, back_fname)) and os.path.exists(back_file):
                 s = read_text_file(back_file)
                 s = re.sub(r'src="\.\./image/[^\"]+"', f'src="../image/{back_fname}"', s)
