@@ -70,7 +70,7 @@ contents: |
 **その他の情報・参照**
 - **スクリプト本体**: [yaml2epub.py](yaml2epub.py)
 - **テンプレート**: `TEMPLATE/book-template` ディレクトリを参照してください。
- 
+
 **追加の YAML フィールド一覧（詳細）**
 以下は `metadata.yaml` や関連ファイルで利用できるフィールドとフォーマットの一覧です。相対パスはメタデータファイルの配置ディレクトリ基準で解決されます。
 
@@ -96,4 +96,109 @@ contents: |
 - 自動生成される項目:
   - OPF の `dc:identifier` は自動的に `urn:uuid:...` を生成して置換されます。
   - OPF の `dcterms:modified` は現在の UTC 時刻で更新されます。
+
+## セットアップ
+以下はこのリポジトリで再現可能な開発環境を作るための手順です。`requirements.txt` / `requirements-dev.txt` と `pyproject.toml` がルートにあります。
+
+1) 仮想環境を作る（推奨）
+
+- Windows (PowerShell):
+```powershell
+python -m venv .venv
+.# 初回のみ: 実行ポリシーが厳しい場合は管理者で `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` を検討
+.\.venv\Scripts\Activate.ps1
+```
+
+- macOS / Linux:
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+2) Poetry を使わない（`pip-tools` + requirements を利用）
+
+- pip-tools が必要（ローカル仮想環境で実行）:
+```bash
+pip install --upgrade pip pip-tools
+pip install -r requirements.txt
+# 開発用ツール
+pip install -r requirements-dev.txt
+```
+
+- 依存を更新したい場合（トップレベルを編集して再コンパイル）:
+```bash
+# requirements.in / requirements-dev.in を編集
+pip-compile requirements.in --output-file=requirements.txt
+pip-compile requirements-dev.in --output-file=requirements-dev.txt
+```
+
+3) Poetry を使う方法
+
+- Poetry をインストール（おすすめ: pip または公式インストーラ）:
+```bash
+pip install --user poetry
+# または: curl -sSL https://install.python-poetry.org | python -
+```
+
+- 依存のインストール（`pyproject.toml` に基づく）:
+```bash
+poetry install
+```
+
+- 開発用シェルを使って実行する例:
+```bash
+poetry shell
+python yaml2epub.py metadata.yaml out.epub
+```
+
+- Poetry から `requirements.txt` を出力したい場合:
+```bash
+poetry export -f requirements.txt --without-hashes --output=requirements.txt
+poetry export -f requirements.txt --with dev --without-hashes --output=requirements-dev.txt
+```
+
+- `poetry.lock` を更新する場合:
+```bash
+poetry lock --no-interaction
+```
+
+- 注意: `pyproject.toml` を変更したら、必ず `poetry lock` を実行して `poetry.lock` を更新してください。
+
+- `poetry export` を使うと、`pyproject.toml` / `poetry.lock` の状態を `requirements.txt` 系ファイルに反映できます。
+
+4) Docker（オプション）
+
+- OS 間の差異（特にバイナリ依存）が問題になる場合、Docker コンテナで実行環境を固定すると確実です。ルートにある `Dockerfile` はシンプルなサンプルです。
+
+Docker イメージのビルド例:
+
+```bash
+# 標準ビルド（ランタイムのみ）
+docker build -t yaml2epub:latest .
+
+# 開発用依存も含めてビルドする場合
+docker build --build-arg INSTALL_DEV=true -t yaml2epub:dev .
+```
+
+コンテナでの実行例（カレントディレクトリをボリュームマウントしてメタデータを渡す）:
+
+- Linux / macOS:
+```bash
+docker run --rm -v "$(pwd)":/work -w /work yaml2epub:latest metadata.yaml out.epub
+```
+
+- Windows PowerShell:
+```powershell
+docker run --rm -v ${PWD}:/work -w /work yaml2epub:latest metadata.yaml out.epub
+```
+
+注意事項:
+
+- `lxml` 等はネイティブ拡張をビルドするために追加のシステムパッケージが必要です。サンプル `Dockerfile` では Debian ベースのビルドツール／ヘッダをインストールしています。ビルドが重い場合は、プラットフォーム用の wheel を用意するか、別のベースイメージ（manylinux ベースなど）を検討してください。
+- Docker が使えない環境で検証する場合は、コンテナの代わりに `pyproject.toml` や `requirements.txt` を使ってローカル仮想環境で再現してください。
+
+5) 注意点
+
+- `pip freeze` を直接使うと、開発者ローカルの不要パッケージが混入することがあるので避ける（クリーンな仮想環境でも実行するなら可）。
+- Windows と Linux でビルドされるバイナリホイールは異なるため、本番配布や CI では該当 OS 上で `pip install` するか Docker を使ってください。
 
