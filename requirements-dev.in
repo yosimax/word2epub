@@ -1,0 +1,20 @@
+# requirements-dev.in
+# 開発向け依存（テスト、整形、静的解析など）
+
+# pip-tools はロック生成に使う（すでにインストール済み）
+pip-tools
+
+# テスト
+pytest
+pytest-cov
+
+# フォーマッタ / Linter
+black
+ruff
+isort
+
+# 型チェック
+mypy
+
+# Git フック（任意）
+pre-commit
