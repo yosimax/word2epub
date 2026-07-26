@@ -6,6 +6,8 @@ dist/
 build/
 out.epub
 __pycache__
+.python-version
+.DS_Store
 noshared
 book-template
 book-template.epub
