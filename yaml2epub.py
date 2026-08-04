@@ -59,6 +59,27 @@ NS_DC = "http://purl.org/dc/elements/1.1/"
 DEFAULT_TITLE = "作品名未設定"
 
 
+def _normalize_legacy_metadata(meta: dict | None) -> dict:
+    """Normalize legacy metadata aliases used by older yaml2epub specifications.
+
+    The historical instruction file uses `seriestitle` and `specialthanks`-style
+    naming. The current code expects `series_title` and `special_thanks`.
+    This helper keeps both forms working during migration.
+    """
+    if not isinstance(meta, dict):
+        return meta or {}
+
+    if "series_title" not in meta and "seriestitle" in meta:
+        meta["series_title"] = meta["seriestitle"]
+    if "special_thanks" not in meta and "specialthanks" in meta:
+        meta["special_thanks"] = meta["specialthanks"]
+    if "title" not in meta and "book_title" in meta:
+        meta["title"] = meta["book_title"]
+    if "book_title" not in meta and "title" in meta:
+        meta["book_title"] = meta["title"]
+    return meta
+
+
 def read_text_file(path: str) -> str:
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
@@ -153,11 +174,13 @@ def _build_xhtml_document(body_html: str, title: str, body_class: str | None = N
 
 
 def _apply_body_template(template: str | None, body_html: str, body_class: str | None, direction: str | None) -> str:
-    """Apply the given body content into a valid XHTML document.
+    """Apply the given body content into a template shell while preserving the EPUB/XHTML wrapper.
 
-    The helper prefers a template wrapper when one is available, but it always
-    replaces the full body content instead of trying to keep old template body
-    fragments. If no template is available, it emits a canonical XHTML document.
+    The legacy pipeline is template-first: the outer `<html>`, `<head>`, and
+    `<body>` opening attributes are kept from the original template, while the
+    body content itself is regenerated from metadata. That preserves document
+    styling, lang/class attributes, and stylesheet links that are required by
+    the old sample template.
     """
     style_value = ""
     if direction:
@@ -314,11 +337,17 @@ def _insert_document_section(
     if image_tags:
         body_html = "\n".join(image_tags) + "\n" + body_html
 
-    # write a canonical XHTML document from the generated body instead of
-    # reusing the template page body as the document shell.
+    # preserve the template shell/head and only replace the body content.
+    tpl = os.path.join(xhtml_dir, template_filename)
     target = os.path.join(xhtml_dir, output_filename)
-    new = _build_xhtml_document(body_html, title=label or label_default, body_class=body_class, direction=direction)
-    write_text_file(target, new)
+    template = read_text_file(tpl) if os.path.exists(tpl) else None
+    if template:
+        new = _apply_body_template(template, body_html, body_class, direction)
+        new = _replace_title_in_string(new, label or label_default)
+        write_text_file(target, new)
+    else:
+        new = _build_xhtml_document(body_html, title=label or label_default, body_class=body_class, direction=direction)
+        write_text_file(target, new)
 
 
 def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str, br_convert: bool = False) -> None:
@@ -371,9 +400,15 @@ def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_di
 def insert_caution(xhtml_dir: str, caution_text: str) -> None:
     if not caution_text:
         return
+    tpl = os.path.join(xhtml_dir, "p-caution.xhtml")
+    template = read_text_file(tpl) if os.path.exists(tpl) else None
     body_html = f"<p>{caution_text}</p>"
-    new = _build_xhtml_document(body_html, title="caution", body_class=None, direction=None)
-    write_text_file(os.path.join(xhtml_dir, "p-caution.xhtml"), new)
+    if template:
+        new = _apply_body_template(template, body_html, None, None)
+        write_text_file(tpl, new)
+    else:
+        new = _build_xhtml_document(body_html, title="caution", body_class=None, direction=None)
+        write_text_file(tpl, new)
 
 
 def insert_colophon(xhtml_dir: str, colophon_spec: dict | None, meta_dir: str, meta: dict | None = None) -> None:
@@ -463,8 +498,14 @@ def insert_colophon(xhtml_dir: str, colophon_spec: dict | None, meta_dir: str, m
     if not body_class and isinstance(colophon_spec, dict):
         body_class = colophon_spec.get("body_class")
 
-    new = _build_xhtml_document(body_html, title="colophon", body_class=body_class, direction=direction)
-    write_text_file(os.path.join(xhtml_dir, "p-colophon.xhtml"), new)
+    tpl = os.path.join(xhtml_dir, "p-colophon.xhtml")
+    template = read_text_file(tpl) if os.path.exists(tpl) else None
+    if template:
+        new = _apply_body_template(template, body_html, body_class, direction)
+        write_text_file(tpl, new)
+    else:
+        new = _build_xhtml_document(body_html, title="colophon", body_class=body_class, direction=direction)
+        write_text_file(tpl, new)
 
 
 def insert_advertisement(xhtml_dir: str, adv_spec: dict | None, meta_dir: str, meta: dict | None = None) -> None:
@@ -512,8 +553,13 @@ def insert_advertisement(xhtml_dir: str, adv_spec: dict | None, meta_dir: str, m
     if not body_class and isinstance(adv_spec, dict):
         body_class = adv_spec.get("body_class")
 
-    new = _build_xhtml_document(body_html, title="advertisement", body_class=body_class, direction=direction)
-    write_text_file(tpl, new)
+    template = read_text_file(tpl) if os.path.exists(tpl) else None
+    if template:
+        new = _apply_body_template(template, body_html, body_class, direction)
+        write_text_file(tpl, new)
+    else:
+        new = _build_xhtml_document(body_html, title="advertisement", body_class=body_class, direction=direction)
+        write_text_file(tpl, new)
 
 
 def insert_titlepage(xhtml_dir: str, meta: dict | None) -> None:
@@ -539,8 +585,15 @@ def insert_titlepage(xhtml_dir: str, meta: dict | None) -> None:
     direction = meta.get("direction") if isinstance(meta, dict) else None
     body_class = meta.get("body_class") if isinstance(meta, dict) else None
 
-    new = _build_xhtml_document(body_html, title=book_title or "titlepage", body_class=body_class, direction=direction)
-    write_text_file(os.path.join(xhtml_dir, "p-titlepage.xhtml"), new)
+    tpl = os.path.join(xhtml_dir, "p-titlepage.xhtml")
+    template = read_text_file(tpl) if os.path.exists(tpl) else None
+    if template:
+        new = _apply_body_template(template, body_html, body_class, direction)
+        new = _replace_title_in_string(new, book_title or "titlepage")
+        write_text_file(tpl, new)
+    else:
+        new = _build_xhtml_document(body_html, title=book_title or "titlepage", body_class=body_class, direction=direction)
+        write_text_file(tpl, new)
 
 
 def _replace_title_in_string(s: str, title: str) -> str:
@@ -613,8 +666,17 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str], br_convert: boo
         else:
             body_html = f"<p>Missing file: {chap}</p>"
 
-        new = _build_xhtml_document(body_html, title=label, body_class=body_class, direction=direction)
-        write_text_file(target_path, new)
+        if os.path.exists(os.path.join(xhtml_dir, "p-001.xhtml")):
+            template = read_text_file(os.path.join(xhtml_dir, "p-001.xhtml"))
+        else:
+            template = None
+        if template:
+            new = _apply_body_template(template, body_html, body_class, direction)
+            new = _replace_title_in_string(new, label)
+            write_text_file(target_path, new)
+        else:
+            new = _build_xhtml_document(body_html, title=label, body_class=body_class, direction=direction)
+            write_text_file(target_path, new)
 
         created.append({"id": page_id, "href": f"xhtml/{filename}", "label": label})
 
@@ -944,8 +1006,14 @@ def update_navigation(nav_path: str, chapters_info: list[dict]) -> None:
             + "\n".join(lines) +
             '\n</div>'
         )
-        new = _build_xhtml_document(toc_body, title="目次", body_class="p-toc", direction=None)
-        write_text_file(toc_path, new)
+        template = read_text_file(toc_path) if os.path.exists(toc_path) else None
+        if template:
+            new = _apply_body_template(template, toc_body, "p-toc", None)
+            new = _replace_title_in_string(new, "目次")
+            write_text_file(toc_path, new)
+        else:
+            new = _build_xhtml_document(toc_body, title="目次", body_class="p-toc", direction=None)
+            write_text_file(toc_path, new)
 
 
 def make_epub_from_template(tmpdir: str, out_epub: str) -> None:
@@ -1289,6 +1357,7 @@ def main(argv: list[str]) -> int:
 
     with open(meta_path, "r", encoding="utf-8") as f:
         meta = yaml.safe_load(f) or {}
+    meta = _normalize_legacy_metadata(meta)
 
     # Set up temporary directory
     tmpdir = tempfile.mkdtemp(prefix="yaml2epub_")
