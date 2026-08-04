@@ -120,12 +120,45 @@ def add_stylesheets_to_xhtml(xhtml_dir: str, styles: list[str]) -> None:
         pass
 
 
-def _apply_body_template(template: str | None, body_html: str, body_class: str | None, direction: str | None) -> str:
-    """テンプレートの <body ...> 開始タグに class/style を付与し、body 内に body_html を挿入して返す。
-    body_class が None の場合はデフォルトで 'p-text' を付与する。
-    direction は 'Vertical' などの文字列を想定し、先頭文字で縦横を判別する（'v'/'V' -> 縦書き）。
+def _build_xhtml_document(body_html: str, title: str, body_class: str | None = None, direction: str | None = None) -> str:
+    """Build a minimal but valid XHTML document from the provided body content.
+
+    The generated document always carries the XHTML namespace declarations so that
+    EPUB readers receive a proper XHTML 1.1/EPUB-compatible document instead of a
+    loose HTML fragment.
     """
-    # build style string from direction
+    style_value = ""
+    if direction:
+        if direction.lower().startswith("v"):
+            style_value = "writing-mode: vertical-rl; -epub-writing-mode: vertical-rl;"
+        else:
+            style_value = "writing-mode: horizontal-tb; -epub-writing-mode: horizontal-tb;"
+
+    cls = body_class or "p-text"
+    style_attr = f' style="{style_value}"' if style_value else ""
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE html>\n'
+        '<html xmlns="http://www.w3.org/1999/xhtml" '
+        'xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ja">\n'
+        '<head>\n'
+        '<meta charset="UTF-8"/>\n'
+        f'<title>{title}</title>\n'
+        '</head>\n'
+        f'<body class="{cls}"{style_attr}>\n'
+        f'{body_html}\n'
+        '</body>\n'
+        '</html>\n'
+    )
+
+
+def _apply_body_template(template: str | None, body_html: str, body_class: str | None, direction: str | None) -> str:
+    """Apply the given body content into a valid XHTML document.
+
+    The helper prefers a template wrapper when one is available, but it always
+    replaces the full body content instead of trying to keep old template body
+    fragments. If no template is available, it emits a canonical XHTML document.
+    """
     style_value = ""
     if direction:
         if direction.lower().startswith("v"):
@@ -136,16 +169,12 @@ def _apply_body_template(template: str | None, body_html: str, body_class: str |
     cls = body_class or "p-text"
 
     if not template or "<body" not in template:
-        # fallback simple html
-        style_attr = f' style="{style_value}"' if style_value else ""
-        return f"<html><head></head><body class=\"{cls}\"{style_attr}>\n{body_html}\n</body></html>"
+        return _build_xhtml_document(body_html, title="document", body_class=cls, direction=direction)
 
     idx = template.find("<body")
     gt = template.find(">", idx)
     if gt == -1:
-        # malformed, fallback
-        style_attr = f' style="{style_value}"' if style_value else ""
-        return f"<html><head></head><body class=\"{cls}\"{style_attr}>\n{body_html}\n</body></html>"
+        return _build_xhtml_document(body_html, title="document", body_class=cls, direction=direction)
 
     opening = template[idx:gt+1]
     new_opening = opening
@@ -154,7 +183,6 @@ def _apply_body_template(template: str | None, body_html: str, body_class: str |
     if 'class="' in new_opening:
         new_opening = re.sub(r'class="([^"]*)"', f'class="{cls}"', new_opening)
     else:
-        # insert class before closing '>'
         new_opening = new_opening[:-1] + f' class="{cls}">'
 
     # ensure style includes style_value
@@ -164,12 +192,11 @@ def _apply_body_template(template: str | None, body_html: str, body_class: str |
         else:
             new_opening = new_opening[:-1] + f' style="{style_value}">'
 
-    # rebuild template with modified opening tag
     new_template = template[:idx] + new_opening + template[gt+1:]
     start = new_template.find(">", new_template.find("<body")) + 1
     end = new_template.rfind("</body>")
     if start == -1 or end == -1:
-        return new_template
+        return _build_xhtml_document(body_html, title="document", body_class=cls, direction=direction)
     return new_template[:start] + "\n" + body_html + "\n" + new_template[end:]
 
 
@@ -287,17 +314,11 @@ def _insert_document_section(
     if image_tags:
         body_html = "\n".join(image_tags) + "\n" + body_html
 
-    # write using template
-    tpl = os.path.join(xhtml_dir, template_filename)
+    # write a canonical XHTML document from the generated body instead of
+    # reusing the template page body as the document shell.
     target = os.path.join(xhtml_dir, output_filename)
-    template = read_text_file(tpl) if os.path.exists(tpl) else None
-    if template:
-        new = _apply_body_template(template, body_html, body_class, direction)
-        write_text_file(target, new)
-    else:
-        # fallback simple html
-        new = _apply_body_template(None, body_html, body_class, direction)
-        write_text_file(target, new)
+    new = _build_xhtml_document(body_html, title=label or label_default, body_class=body_class, direction=direction)
+    write_text_file(target, new)
 
 
 def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str, br_convert: bool = False) -> None:
@@ -350,16 +371,9 @@ def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_di
 def insert_caution(xhtml_dir: str, caution_text: str) -> None:
     if not caution_text:
         return
-    tpl = os.path.join(xhtml_dir, "p-caution.xhtml")
-    template = read_text_file(tpl) if os.path.exists(tpl) else None
     body_html = f"<p>{caution_text}</p>"
-    # default: p-text, no direction
-    if template:
-        new = _apply_body_template(template, body_html, None, None)
-        write_text_file(tpl, new)
-    else:
-        new = _apply_body_template(None, body_html, None, None)
-        write_text_file(tpl, new)
+    new = _build_xhtml_document(body_html, title="caution", body_class=None, direction=None)
+    write_text_file(os.path.join(xhtml_dir, "p-caution.xhtml"), new)
 
 
 def insert_colophon(xhtml_dir: str, colophon_spec: dict | None, meta_dir: str, meta: dict | None = None) -> None:
@@ -449,14 +463,8 @@ def insert_colophon(xhtml_dir: str, colophon_spec: dict | None, meta_dir: str, m
     if not body_class and isinstance(colophon_spec, dict):
         body_class = colophon_spec.get("body_class")
 
-    tpl = os.path.join(xhtml_dir, "p-colophon.xhtml")
-    template = read_text_file(tpl) if os.path.exists(tpl) else None
-    if template:
-        new = _apply_body_template(template, body_html, body_class, direction)
-        write_text_file(tpl, new)
-    else:
-        new = _apply_body_template(None, body_html, body_class, direction)
-        write_text_file(tpl, new)
+    new = _build_xhtml_document(body_html, title="colophon", body_class=body_class, direction=direction)
+    write_text_file(os.path.join(xhtml_dir, "p-colophon.xhtml"), new)
 
 
 def insert_advertisement(xhtml_dir: str, adv_spec: dict | None, meta_dir: str, meta: dict | None = None) -> None:
@@ -504,13 +512,8 @@ def insert_advertisement(xhtml_dir: str, adv_spec: dict | None, meta_dir: str, m
     if not body_class and isinstance(adv_spec, dict):
         body_class = adv_spec.get("body_class")
 
-    template = read_text_file(tpl) if os.path.exists(tpl) else None
-    if template:
-        new = _apply_body_template(template, body_html, body_class, direction)
-        write_text_file(tpl, new)
-    else:
-        new = _apply_body_template(None, body_html, body_class, direction)
-        write_text_file(tpl, new)
+    new = _build_xhtml_document(body_html, title="advertisement", body_class=body_class, direction=direction)
+    write_text_file(tpl, new)
 
 
 def insert_titlepage(xhtml_dir: str, meta: dict | None) -> None:
@@ -524,9 +527,6 @@ def insert_titlepage(xhtml_dir: str, meta: dict | None) -> None:
     book_title = meta.get("book_title") or meta.get("title") or ""
     series_title = meta.get("series_title") or ""
 
-    tpl = os.path.join(xhtml_dir, "p-titlepage.xhtml")
-    template = read_text_file(tpl) if os.path.exists(tpl) else None
-
     # build centered two-line layout
     body_html = '<div class="titlepage" style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;text-align:center;writing-mode:horizontal-tb;">'
     if book_title:
@@ -539,12 +539,8 @@ def insert_titlepage(xhtml_dir: str, meta: dict | None) -> None:
     direction = meta.get("direction") if isinstance(meta, dict) else None
     body_class = meta.get("body_class") if isinstance(meta, dict) else None
 
-    if template:
-        new = _apply_body_template(template, body_html, body_class, direction)
-        write_text_file(tpl, new)
-    else:
-        new = _apply_body_template(None, body_html, body_class, direction)
-        write_text_file(tpl, new)
+    new = _build_xhtml_document(body_html, title=book_title or "titlepage", body_class=body_class, direction=direction)
+    write_text_file(os.path.join(xhtml_dir, "p-titlepage.xhtml"), new)
 
 
 def _replace_title_in_string(s: str, title: str) -> str:
@@ -567,10 +563,6 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str], br_convert: boo
     Returns list of dicts: {"id": "p-001", "href": "xhtml/p-001.xhtml", "label": "title"}
     """
     os.makedirs(xhtml_dir, exist_ok=True)
-    # choose a template to base pages on (prefer p-001.xhtml)
-    template_path = os.path.join(xhtml_dir, "p-001.xhtml")
-    template = read_text_file(template_path) if os.path.exists(template_path) else None
-
     created = []
     for i, chap in enumerate(chapters, start=1):
         page_id = f"p-{i:03d}"
@@ -621,22 +613,8 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str], br_convert: boo
         else:
             body_html = f"<p>Missing file: {chap}</p>"
 
-        if template:
-            new = _apply_body_template(template, body_html, body_class, direction)
-            # set the <title> to the page title/label
-            new = _replace_title_in_string(new, label)
-            write_text_file(target_path, new)
-        else:
-            # fallback: generate simple xhtml with attributes
-            style_value = ""
-            if direction:
-                if direction.lower().startswith("v"):
-                    style_value = ' style="writing-mode: vertical-rl; -epub-writing-mode: vertical-rl;"'
-                else:
-                    style_value = ' style="writing-mode: horizontal-tb; -epub-writing-mode: horizontal-tb;"'
-            cls = body_class or "p-text"
-            content = f"<html><head><title>{label}</title></head><body class=\"{cls}\"{style_value}>{body_html}</body></html>"
-            write_text_file(target_path, content)
+        new = _build_xhtml_document(body_html, title=label, body_class=body_class, direction=direction)
+        write_text_file(target_path, new)
 
         created.append({"id": page_id, "href": f"xhtml/{filename}", "label": label})
 
@@ -714,11 +692,12 @@ def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], inc
 
     # styles
     new_manifest.append(ET.Comment(" style "))
-    # preserve stylesheet items from the template manifest
+    # preserve only the actual stylesheet items that belong to the generated output.
+    # Template-side item2/css etc. must not be propagated into the new manifest.
     style_added_hrefs = set()
     used_style_ids = set()
     for href, it in existing_items.items():
-        if href.startswith("style/") or it.get("media-type") == "text/css":
+        if href.startswith("style/"):
             new_manifest.append(it)
             style_added_hrefs.add(href)
             if it.get("id"):
@@ -892,96 +871,109 @@ def update_opf_basic(opf_path: str, meta: dict) -> None:
 
 
 def update_navigation(nav_path: str, chapters_info: list[dict]) -> None:
-    # navigation-documents.xhtml should only contain cover, toc and colophon (template style)
-    nav_template = read_text_file(nav_path) if os.path.exists(nav_path) else None
+    """Rebuild the navigation document from scratch.
+
+    The previous implementation only patched parts of the template navigation
+    file, so template sample content could remain in the final EPUB. This
+    version always emits a clean, metadata-driven navigation.xhtml document.
+    """
     nav_items = [
         '<li><a href="xhtml/p-cover.xhtml">表紙</a></li>',
         '<li><a href="xhtml/p-toc.xhtml">目次</a></li>',
     ]
-    # if backmatter file exists, show link before colophon
     back_path = os.path.join(os.path.dirname(nav_path), "xhtml", "p-bmatter-001.xhtml")
     if os.path.exists(back_path):
         nav_items.append('<li><a href="xhtml/p-bmatter-001.xhtml">あとがき</a></li>')
     nav_items.append('<li><a href="xhtml/p-colophon.xhtml">奥付</a></li>')
+
     nav_ol = "\n".join(nav_items)
-    if nav_template and "<ol>" in nav_template:
-        start = nav_template.find("<ol>")
-        end = nav_template.find("</ol>", start)
-        if start != -1 and end != -1:
-            nav_template = nav_template[: start + len("<ol>")] + "\n" + nav_ol + "\n" + nav_template[end:]
-            write_text_file(nav_path, nav_template)
-    else:
-        # fallback simple nav using assembled items
-        nav_html = '<?xml version="1.0" encoding="UTF-8"?>\n' \
-                   '<!DOCTYPE html>\n' \
-                   '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ja">\n' \
-                   '<head>\n<meta charset="UTF-8"/>\n' \
-                   '<title>Navigation</title>\n' \
-                   '</head>\n' \
-                   '<body>\n' \
-                   '<nav epub:type="toc" id="toc">\n' \
-                   '<ol>\n' + nav_ol + '\n</ol>\n' \
-                   '</nav>\n' \
-                   '</body>\n' \
-                   '</html>'
-        write_text_file(nav_path, nav_html)
+    nav_html = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE html>\n'
+        '<html xmlns="http://www.w3.org/1999/xhtml" '
+        'xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ja">\n'
+        '<head>\n'
+        '<meta charset="UTF-8"/>\n'
+        '<title>Navigation</title>\n'
+        '</head>\n'
+        '<body>\n'
+        '<nav epub:type="toc" id="toc">\n'
+        '<h1>Navigation</h1>\n'
+        '<ol>\n'
+        f'{nav_ol}\n'
+        '</ol>\n'
+        '</nav>\n'
+        '<nav epub:type="landmarks" id="guide">\n'
+        '<h1>Guide</h1>\n'
+        '<ol>\n'
+        '<li><a epub:type="cover" href="xhtml/p-cover.xhtml">表紙</a></li>\n'
+        '<li><a epub:type="toc" href="xhtml/p-toc.xhtml">目次</a></li>\n'
+        '<li><a epub:type="bodymatter" href="xhtml/p-titlepage.xhtml">本編</a></li>\n'
+        '</ol>\n'
+        '</nav>\n'
+        '</body>\n'
+        '</html>\n'
+    )
+    write_text_file(nav_path, nav_html)
 
     # update p-toc.xhtml: create chapter-only TOC using chapters_info
     xhtml_dir = os.path.join(os.path.dirname(nav_path), "xhtml")
     toc_path = os.path.join(xhtml_dir, "p-toc.xhtml")
     if os.path.exists(toc_path):
-        s2 = read_text_file(toc_path)
-        # build chapter-only links
         lines = []
         for ch in chapters_info:
             href = os.path.basename(ch["href"])
-            # if label contains newlines or is long, keep plain label
             label = ch.get("label") or ch["id"]
-            # assume each chapter may have an id anchor like #toc-001
-            # if generated, use that anchor
-            # extract id number from ch['id'] (p-001 -> 001)
             m = None
             try:
                 m = int(ch["id"].split("-")[-1])
             except Exception:
                 m = None
-            if m:
-                anchor = f"#toc-{m:03d}"
-            else:
-                anchor = ""
+            anchor = f"#toc-{m:03d}" if m else ""
             link = f'<p><a href="{href}{anchor}">{label}</a></p>' if anchor else f'<p><a href="{href}">{label}</a></p>'
             lines.append(link)
-        # append backmatter entry if it exists
+
         back_href = "p-bmatter-001.xhtml"
         back_file = os.path.join(xhtml_dir, back_href)
         if os.path.exists(back_file):
             lines.append(f'<p><a href="{back_href}">あとがき</a></p>')
-        toc_body = "\n".join(lines)
-        # replace between the first <h1 ..> and closing </div> or between known markers
-        if "<ol>" in s2 and "</ol>" in s2:
-            start = s2.find("<ol>")
-            end = s2.find("</ol>", start)
-            s2 = s2[: start + len("<ol>")] + "\n" + "\n".join([f'<li><a href="{os.path.basename(ch["href"])}">{ch.get("label") or ch.get("id")}</a></li>' for ch in chapters_info])
-            if os.path.exists(back_file):
-                s2 += "\n" + f'<li><a href="{back_href}">あとがき</a></li>'
-            s2 += "\n" + s2[end:]
-            write_text_file(toc_path, s2)
-        else:
-            # fallback: replace main content body
-            if '<div class="main">' in s2 and "</div>" in s2:
-                st = s2.find('<div class="main">')
-                en = s2.find("</div>", st)
-                newdiv = '<div class="main">\n\n<h1 class="mokuji-midashi">　目次</h1>\n' + toc_body + "\n</div>"
-                s2 = s2[:st] + newdiv + s2[en + 6 :]
-                write_text_file(toc_path, s2)
+
+        toc_body = (
+            '<div class="main">\n\n'
+            '<h1 class="mokuji-midashi">　目次</h1>\n'
+            + "\n".join(lines) +
+            '\n</div>'
+        )
+        new = _build_xhtml_document(toc_body, title="目次", body_class="p-toc", direction=None)
+        write_text_file(toc_path, new)
 
 
 def make_epub_from_template(tmpdir: str, out_epub: str) -> None:
     # create EPUB (mimetype first, uncompressed)
-    template_item = os.path.join(tmpdir, "item")
     root = os.path.join(tmpdir)
     mimetype_path = os.path.join(root, "mimetype")
-    # build list of files
+    opf_path = os.path.join(root, OPF_FILE)
+    manifest_hrefs = set()
+
+    # build an allow-list from the OPF manifest so the final archive includes only
+    # files that the EPUB package actually declares.
+    if os.path.exists(opf_path):
+        import xml.etree.ElementTree as ET
+        tree = ET.parse(opf_path)
+        package = tree.getroot()
+        for item in package.findall(f".//{{{NS_OPF}}}item"):
+            href = item.get("href")
+            if href:
+                href = href.replace("\\", "/")
+                # OPF href values are relative to item/standard.opf, so the final
+                # ZIP entry path must be rooted under item/.
+                manifest_hrefs.add(f"item/{href}")
+
+    # add required root-level files explicitly
+    manifest_hrefs.add("item/standard.opf")
+    manifest_hrefs.add("META-INF/container.xml")
+    manifest_hrefs.add("mimetype")
+
     # try to remove existing output file first (may fail if file is locked by another process)
     try:
         if os.path.exists(out_epub):
@@ -994,13 +986,16 @@ def make_epub_from_template(tmpdir: str, out_epub: str) -> None:
         with zipfile.ZipFile(out_epub, "w", compression=zipfile.ZIP_DEFLATED) as z:
             # mimetype must be stored and first
             z.writestr("mimetype", read_text_file(mimetype_path), compress_type=zipfile.ZIP_STORED)
-            for base, dirs, files in os.walk(root):
-                for fn in files:
-                    path = os.path.join(base, fn)
-                    arcname = os.path.relpath(path, root)
-                    if arcname == "mimetype":
-                        continue
-                    z.write(path, arcname)
+
+            for href in sorted(manifest_hrefs):
+                if href == "mimetype":
+                    continue
+                path = os.path.join(root, href)
+                if not os.path.exists(path):
+                    continue
+                # EPUB ZIP entry names must use forward slashes regardless of host OS.
+                arcname = href.replace("\\", "/")
+                z.write(path, arcname)
     except PermissionError as e:
         # often caused by the destination file being opened by another program
         raise PermissionError(f"could not write EPUB '{out_epub}'; please close it if open and retry") from e
