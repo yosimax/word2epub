@@ -100,8 +100,7 @@ def replace_title_in_xhtml(dirpath: str, title: str) -> None:
             continue
         p = os.path.join(xhtml_dir, name)
         s = read_text_file(p)
-        s = s.replace("<title>作品名</title>", f"<title>{title}</title>")
-        s = s.replace("<title>Navigation</title>", "<title>Navigation</title>")
+        s = _replace_title_in_string(s, title)
         write_text_file(p, s)
 
 
@@ -141,7 +140,13 @@ def add_stylesheets_to_xhtml(xhtml_dir: str, styles: list[str]) -> None:
         pass
 
 
-def _build_xhtml_document(body_html: str, title: str, body_class: str | None = None, direction: str | None = None) -> str:
+def _build_xhtml_document(
+    body_html: str,
+    title: str,
+    body_class: str | None = None,
+    direction: str | None = None,
+    stylesheets: list[str] | None = None,
+) -> str:
     """Build a minimal but valid XHTML document from the provided body content.
 
     The generated document always carries the XHTML namespace declarations so that
@@ -155,16 +160,24 @@ def _build_xhtml_document(body_html: str, title: str, body_class: str | None = N
         else:
             style_value = "writing-mode: horizontal-tb; -epub-writing-mode: horizontal-tb;"
 
+    html_class = "vrtl" if direction and direction.lower().startswith("v") else "hltr"
     cls = body_class or "p-text"
     style_attr = f' style="{style_value}"' if style_value else ""
+    link_tags = ""
+    if stylesheets:
+        for fn in stylesheets:
+            if not fn:
+                continue
+            link_tags += f'<link rel="stylesheet" type="text/css" href="../style/{os.path.basename(fn)}"/>\n'
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<!DOCTYPE html>\n'
-        '<html xmlns="http://www.w3.org/1999/xhtml" '
-        'xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ja">\n'
+        f'<html xmlns="http://www.w3.org/1999/xhtml" '
+        f'xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ja" class="{html_class}">\n'
         '<head>\n'
         '<meta charset="UTF-8"/>\n'
         f'<title>{title}</title>\n'
+        f'{link_tags}'
         '</head>\n'
         f'<body class="{cls}"{style_attr}>\n'
         f'{body_html}\n'
@@ -190,9 +203,22 @@ def _apply_body_template(template: str | None, body_html: str, body_class: str |
             style_value = "writing-mode: horizontal-tb; -epub-writing-mode: horizontal-tb;"
 
     cls = body_class or "p-text"
+    html_class = "vrtl" if direction and direction.lower().startswith("v") else "hltr"
 
     if not template or "<body" not in template:
         return _build_xhtml_document(body_html, title="document", body_class=cls, direction=direction)
+
+    html_idx = template.find("<html")
+    if html_idx != -1:
+        html_gt = template.find(">", html_idx)
+        if html_gt != -1:
+            html_opening = template[html_idx:html_gt + 1]
+            html_new_opening = html_opening
+            if 'class="' in html_new_opening:
+                html_new_opening = re.sub(r'class="([^"]*)"', f'class="{html_class}"', html_new_opening, count=1)
+            else:
+                html_new_opening = html_new_opening[:-1] + f' class="{html_class}">'
+            template = template[:html_idx] + html_new_opening + template[html_gt + 1:]
 
     idx = template.find("<body")
     gt = template.find(">", idx)
@@ -204,14 +230,20 @@ def _apply_body_template(template: str | None, body_html: str, body_class: str |
 
     # replace class attribute with cls
     if 'class="' in new_opening:
-        new_opening = re.sub(r'class="([^"]*)"', f'class="{cls}"', new_opening)
+        new_opening = re.sub(r'class="([^"]*)"', f'class="{cls}"', new_opening, count=1)
     else:
         new_opening = new_opening[:-1] + f' class="{cls}">'
 
-    # ensure style includes style_value
+    # ensure style includes style_value without duplicating existing writing-mode declarations
     if style_value:
         if 'style="' in new_opening:
-            new_opening = re.sub(r'style="([^"]*)"', lambda m: f'style="{m.group(1)} {style_value}"', new_opening)
+            def _update_style(match: re.Match[str]) -> str:
+                existing = match.group(1)
+                if style_value in existing:
+                    return f'style="{existing}"'
+                combined = f"{existing.strip()} {style_value}".strip()
+                return f'style="{combined}"'
+            new_opening = re.sub(r'style="([^"]*)"', _update_style, new_opening, count=1)
         else:
             new_opening = new_opening[:-1] + f' style="{style_value}">'
 
@@ -1008,11 +1040,12 @@ def update_navigation(nav_path: str, chapters_info: list[dict]) -> None:
         )
         template = read_text_file(toc_path) if os.path.exists(toc_path) else None
         if template:
-            new = _apply_body_template(template, toc_body, "p-toc", None)
+            # p-toc.xhtml is the only page that must remain fixed to vertical writing mode.
+            new = _apply_body_template(template, toc_body, "p-toc", "Vertical")
             new = _replace_title_in_string(new, "目次")
             write_text_file(toc_path, new)
         else:
-            new = _build_xhtml_document(toc_body, title="目次", body_class="p-toc", direction=None)
+            new = _build_xhtml_document(toc_body, title="目次", body_class="p-toc", direction="Vertical")
             write_text_file(toc_path, new)
 
 
@@ -1255,9 +1288,6 @@ def _generate_document_content(tmpdir: str, meta: dict, meta_path: str) -> tuple
                     copied_styles.append(os.path.basename(src))
                 except Exception:
                     pass
-    # inject stylesheet links into xhtml files (if any copied)
-    if copied_styles:
-        add_stylesheets_to_xhtml(xhtml_dir, copied_styles)
 
     # Insert documents: frontmatter/caution/backmatter/colophon/advertisement
     docs = meta.get("documents", {}) or {}
@@ -1287,6 +1317,9 @@ def _generate_document_content(tmpdir: str, meta: dict, meta_path: str) -> tuple
     chapters = [c if os.path.isabs(c) else os.path.join(meta_dir, c) for c in chapters]
     br_flag = bool(meta.get("br_convert"))
     chapters_info = generate_chapter_xhtmls(xhtml_dir, chapters, br_flag)
+
+    if copied_styles:
+        add_stylesheets_to_xhtml(xhtml_dir, copied_styles)
 
     # Remove unused p-XXX.xhtml files from template that were not generated
     try:
