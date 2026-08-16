@@ -28,6 +28,22 @@ except Exception:
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "TEMPLATE", "book-template")
 
+
+def _compute_style_value(direction: str | None) -> str:
+    """Compute the CSS writing-mode value for the given direction.
+
+    Args:
+        direction (str | None): Direction string (e.g. 'Vertical', 'horizontal-tb').
+
+    Returns:
+        str: The CSS style string for writing-mode.
+    """
+    if not direction:
+        return ""
+    if direction.lower().startswith("v"):
+        return "writing-mode: vertical-rl; -epub-writing-mode: vertical-rl;"
+    return "writing-mode: horizontal-tb; -epub-writing-mode: horizontal-tb;"
+
 # File structure constants
 ITEM_DIR = "item"
 XHTML_DIR = "item/xhtml"
@@ -153,13 +169,7 @@ def _build_xhtml_document(
     EPUB readers receive a proper XHTML 1.1/EPUB-compatible document instead of a
     loose HTML fragment.
     """
-    style_value = ""
-    if direction:
-        if direction.lower().startswith("v"):
-            style_value = "writing-mode: vertical-rl; -epub-writing-mode: vertical-rl;"
-        else:
-            style_value = "writing-mode: horizontal-tb; -epub-writing-mode: horizontal-tb;"
-
+    style_value = _compute_style_value(direction)
     html_class = "vrtl" if direction and direction.lower().startswith("v") else "hltr"
     cls = body_class or "p-text"
     style_attr = f' style="{style_value}"' if style_value else ""
@@ -195,13 +205,7 @@ def _apply_body_template(template: str | None, body_html: str, body_class: str |
     styling, lang/class attributes, and stylesheet links that are required by
     the old sample template.
     """
-    style_value = ""
-    if direction:
-        if direction.lower().startswith("v"):
-            style_value = "writing-mode: vertical-rl; -epub-writing-mode: vertical-rl;"
-        else:
-            style_value = "writing-mode: horizontal-tb; -epub-writing-mode: horizontal-tb;"
-
+    style_value = _compute_style_value(direction)
     cls = body_class or "p-text"
     html_class = "vrtl" if direction and direction.lower().startswith("v") else "hltr"
 
@@ -424,7 +428,7 @@ def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_di
         image_dir,
         output_filename="p-bmatter-001.xhtml",
         label_default="backmatter",
-        template_filename="p-fmatter-001.xhtml",
+        template_filename="p-bmatter-001.xhtml",
         br_convert=br_convert,
     )
 
