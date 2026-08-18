@@ -8,12 +8,12 @@
 このスクリプトは `TEMPLATE/book-template` を元にして EPUB を作成します。
 """
 from __future__ import annotations
-
 import os
 import sys
 import shutil
 import tempfile
 import zipfile
+import xml.etree.ElementTree as ET
 import uuid
 import gzip
 from datetime import datetime, timezone
@@ -387,49 +387,18 @@ def _insert_document_section(
 
 
 def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str, br_convert: bool = False) -> None:
-    """Insert frontmatter content into the EPUB.
-
-    Args:
-        xhtml_dir (str): Directory containing XHTML files.
-        spec (dict | None): Frontmatter specification.
-        meta_dir (str): Directory containing metadata files.
-        image_dir (str): Directory to store images.
-        br_convert (bool): Replace single line breaks in contents with <br/>.
-    """
     _insert_document_section(
-        xhtml_dir,
-        spec,
-        meta_dir,
-        image_dir,
-        output_filename="p-fmatter-001.xhtml",
-        label_default="frontmatter",
-        template_filename="p-fmatter-001.xhtml",
-        br_convert=br_convert,
+        xhtml_dir, spec, meta_dir, image_dir,
+        output_filename="p-fmatter-001.xhtml", label_default="frontmatter",
+        template_filename="p-fmatter-001.xhtml", br_convert=br_convert,
     )
 
 
 def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str, br_convert: bool = False) -> None:
-    """Insert backmatter content into the EPUB.
-
-    backmatter is written to ``p-bmatter-001.xhtml`` and is intended to be inserted after
-    the main contents and before the colophon in the spine.
-
-    Args:
-        xhtml_dir (str): Directory containing XHTML files.
-        spec (dict | None): Backmatter specification.
-        meta_dir (str): Directory containing metadata files.
-        image_dir (str): Directory to store images.
-        br_convert (bool): Replace single line breaks in contents with <br/>.
-    """
     _insert_document_section(
-        xhtml_dir,
-        spec,
-        meta_dir,
-        image_dir,
-        output_filename="p-bmatter-001.xhtml",
-        label_default="backmatter",
-        template_filename="p-bmatter-001.xhtml",
-        br_convert=br_convert,
+        xhtml_dir, spec, meta_dir, image_dir,
+        output_filename="p-bmatter-001.xhtml", label_default="backmatter",
+        template_filename="p-bmatter-001.xhtml", br_convert=br_convert,
     )
 
 
@@ -437,8 +406,8 @@ def insert_caution(xhtml_dir: str, caution_text: str) -> None:
     if not caution_text:
         return
     tpl = os.path.join(xhtml_dir, "p-caution.xhtml")
-    template = read_text_file(tpl) if os.path.exists(tpl) else None
     body_html = f"<p>{caution_text}</p>"
+    template = read_text_file(tpl) if os.path.exists(tpl) else None
     if template:
         new = _apply_body_template(template, body_html, None, None)
         write_text_file(tpl, new)
@@ -719,8 +688,6 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str], br_convert: boo
     return created
 
 def update_opf_dynamic(opf_path: str, meta: dict, chapters_info: list[dict], include_frontmatter: bool, include_caution: bool, include_backmatter: bool = False, include_advertisement: bool = True) -> None:
-    import xml.etree.ElementTree as ET
-
     ns = {
         "opf": "http://www.idpf.org/2007/opf",
         "dc": "http://purl.org/dc/elements/1.1/",
