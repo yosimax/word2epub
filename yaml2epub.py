@@ -387,6 +387,12 @@ def _insert_document_section(
 
 
 def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str, br_convert: bool = False) -> None:
+    """Insert frontmatter content into p-fmatter-<index>.xhtml.
+
+    The argument `spec` is a path (str) or a dict with `text` / `image` keys.
+    Unlike other document sections, caution uses inline text only so it keeps
+    its own dedicated logic above.
+    """
     _insert_document_section(
         xhtml_dir, spec, meta_dir, image_dir,
         output_filename="p-fmatter-001.xhtml", label_default="frontmatter",
@@ -395,6 +401,15 @@ def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_d
 
 
 def insert_backmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str, br_convert: bool = False) -> None:
+    """Insert backmatter content into p-bmatter-001.xhtml.
+
+    Args:
+        xhtml_dir (str): Directory holding XHTML templates.
+        spec (dict | None | str): Path to YAML/HTML text, or dict with at least `text`.
+        meta_dir (str): Directory of metadata files.
+        image_dir (str): Directory of images.
+        br_convert (bool): Replace single LF with ``<br/>`` when converting.
+    """
     _insert_document_section(
         xhtml_dir, spec, meta_dir, image_dir,
         output_filename="p-bmatter-001.xhtml", label_default="backmatter",
