@@ -105,5 +105,10 @@ p-ad-001.xhtml        : 8.広告
 p-backcover.xhtml     : 9.表紙
 ```
 
+* 生成された XHTML は、テンプレート側の既存 `<head>` と `<link rel="stylesheet">` を保持したまま、`body` の中身だけを差し換える。`stylesheets` が指定された場合は既存の link を削除せず、必要な link を追加する。
+* `direction` の指定がある場合、`<html>` の `class` と `<body>` の `style` はその値に合わせて補正し、`Vertical` / `Horizontal` の乖離をなくす。
+  * 目次 `p-toc.xhtml` は例外で縦書き固定
+
 * プログラムについて
   * pythonスクリプトは適宜lib化して保守性が良くなるようなプログラム構造としてください。
+  * EPUB3準拠の拠り所である、book-template配下は一切変更しないでください。
