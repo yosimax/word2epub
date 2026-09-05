@@ -1,4 +1,5 @@
 """Unit tests for individual helpers in yaml2epub.py."""
+import gzip
 import os
 import re
 
@@ -85,3 +86,86 @@ def test_update_navigation_writes_files(module, tmp_path):
 
     # chapter link uses basename + anchor id
     assert 'href="p-001.xhtml#toc-001"' in toc_body
+
+
+def test_apply_body_template_preserves_head(module, tmp_path):
+    template = (
+        '<html class="old"><head><title>old</title>'
+        '<link rel="stylesheet" href="../style/book-style.css"/></head>'
+        '<body class="p-text"><div class="main">OLD</div></body></html>'
+    )
+    out = module._apply_body_template(template, "<p>NEW</p>", "p-body", "Vertical")
+    # head / stylesheet shell must be preserved
+    assert "<head>" in out
+    assert '<link rel="stylesheet" href="../style/book-style.css"/>' in out
+    # html class corrected to vertical writing-mode class
+    assert 'class="vrtl"' in out
+    assert 'class="old"' not in out
+    # body class replaced and body content swapped
+    assert 'class="p-body"' in out
+    assert "OLD" not in out
+    assert "<p>NEW</p>" in out
+
+
+def test_apply_body_template_style_merge(module):
+    template = (
+        '<html class="vrtl"><head><title>old</title></head>'
+        '<body class="p-text" style="color: red;">OLD</body></html>'
+    )
+    out = module._apply_body_template(template, "<p>NEW</p>", "p-body", "Vertical")
+    # existing style preserved, writing-mode merged without duplication
+    assert 'style="color: red; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl;"' in out
+    assert out.count("writing-mode: vertical-rl; -epub-writing-mode: vertical-rl;") == 1
+
+
+def test_apply_body_template_no_body_fallback(module):
+    # template without <body triggers fallback to _build_xhtml_document
+    template = '<html><head><title>old</title></head></html>'
+    out = module._apply_body_template(template, "<p>NEW</p>", "p-body", "Vertical")
+    assert "<body" in out
+    assert 'class="p-body"' in out
+    assert "<p>NEW</p>" in out
+
+
+def test_insert_svgz_decompress(module, tmp_path):
+    xhtml_dir = tmp_path / "xhtml"
+    xhtml_dir.mkdir()
+    (xhtml_dir / "p-fmatter-001.xhtml").write_text("<html><body class=\"p-fmatter\"></body></html>")
+    meta_dir = tmp_path / "meta"
+    meta_dir.mkdir()
+    image_dir = tmp_path / "image"
+    image_dir.mkdir()
+    svg_bytes = b"<svg>hello</svg>"
+    svgz_path = meta_dir / "pic.svgz"
+    with gzip.open(svgz_path, "wb") as f:
+        f.write(svg_bytes)
+    spec = {"text": "intro", "image": [str(svgz_path)]}
+    module._insert_document_section(str(xhtml_dir), spec, str(meta_dir), str(image_dir), "out.xhtml")
+    assert (image_dir / "pic.svg").exists()
+    assert not (image_dir / "pic.svgz").exists()
+
+
+def test_insert_html_raw_vs_plain_wrapped(module, tmp_path):
+    # .html/.xhtml/.htm branch keeps raw markup; plain-text branch wraps in <p>.
+    xhtml_dir = tmp_path / "xhtml"
+    xhtml_dir.mkdir()
+    (xhtml_dir / "p-fmatter-001.xhtml").write_text("<html><body class=\"x\"></body></html>")
+    meta_dir = tmp_path / "meta"
+    meta_dir.mkdir()
+    content = "Para one\n\nPara two"
+    html_path = meta_dir / "page.html"
+    txt_path = meta_dir / "page.txt"
+    html_path.write_text(content)
+    txt_path.write_text(content)
+
+    img1 = tmp_path / "img1"
+    img1.mkdir()
+    img2 = tmp_path / "img2"
+    img2.mkdir()
+    module._insert_document_section(str(xhtml_dir), {"text": str(html_path)}, str(meta_dir), str(img1), "out.html", template_filename="p-fmatter-001.xhtml")
+    module._insert_document_section(str(xhtml_dir), {"text": str(txt_path)}, str(meta_dir), str(img2), "out.txt", template_filename="p-fmatter-001.xhtml")
+
+    html_out = (xhtml_dir / "out.html").read_text(encoding="utf-8")
+    txt_out = (xhtml_dir / "out.txt").read_text(encoding="utf-8")
+    assert "Para one" in html_out and "<p>Para one" not in html_out
+    assert "<p>Para one</p>" in txt_out

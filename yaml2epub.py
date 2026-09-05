@@ -44,6 +44,23 @@ def _compute_style_value(direction: str | None) -> str:
         return "writing-mode: vertical-rl; -epub-writing-mode: vertical-rl;"
     return "writing-mode: horizontal-tb; -epub-writing-mode: horizontal-tb;"
 
+
+def _compute_html_class(direction: str | None) -> str:
+    """Return the HTML ``class`` value for the given writing direction.
+
+    Vertical writing mode uses ``vrtl``; any other direction (including ``None``)
+    uses ``hltr``. Centralizes the direction->class mapping so the XHTML builders
+    cannot drift out of sync.
+
+    Args:
+        direction (str | None): Direction string (e.g. 'Vertical', 'Horizontal').
+
+    Returns:
+        str: 'vrtl' for vertical writing mode, 'hltr' otherwise.
+    """
+    return "vrtl" if direction and direction.lower().startswith("v") else "hltr"
+
+
 # File structure constants
 ITEM_DIR = "item"
 XHTML_DIR = "item/xhtml"
@@ -170,7 +187,7 @@ def _build_xhtml_document(
     loose HTML fragment.
     """
     style_value = _compute_style_value(direction)
-    html_class = "vrtl" if direction and direction.lower().startswith("v") else "hltr"
+    html_class = _compute_html_class(direction)
     cls = body_class or "p-text"
     style_attr = f' style="{style_value}"' if style_value else ""
     link_tags = ""
@@ -207,7 +224,7 @@ def _apply_body_template(template: str | None, body_html: str, body_class: str |
     """
     style_value = _compute_style_value(direction)
     cls = body_class or "p-text"
-    html_class = "vrtl" if direction and direction.lower().startswith("v") else "hltr"
+    html_class = _compute_html_class(direction)
 
     if not template or "<body" not in template:
         return _build_xhtml_document(body_html, title="document", body_class=cls, direction=direction)
@@ -257,6 +274,47 @@ def _apply_body_template(template: str | None, body_html: str, body_class: str |
     if start == -1 or end == -1:
         return _build_xhtml_document(body_html, title="document", body_class=cls, direction=direction)
     return new_template[:start] + "\n" + body_html + "\n" + new_template[end:]
+
+
+def _render_document(
+    template_path: str | None,
+    body_html: str,
+    title: str,
+    body_class: str | None,
+    direction: str | None,
+    output_path: str,
+    *,
+    replace_title: bool = True,
+) -> None:
+    """Render ``body_html`` into an XHTML document and write it to ``output_path``.
+
+    When ``template_path`` exists the template shell (``<html>``/``<head>``) is
+    preserved and only the body is replaced; otherwise a minimal document is built.
+    The ``<title>`` is rewritten with ``title`` only when ``replace_title`` is set,
+    so callers that must keep the template title (caution/colophon/advertisement)
+    pass ``replace_title=False`` to preserve the exact previous behavior.
+
+    Args:
+        template_path (str | None): Path to an XHTML template, or None.
+        body_html (str): Body content to inject.
+        title (str): Title for the ``<title>`` tag (used when building from scratch
+            and when ``replace_title`` is True).
+        body_class (str | None): Class attribute for the ``<body>`` tag.
+        direction (str | None): Writing direction ('Vertical', 'Horizontal', ...).
+        output_path (str): Destination path to write the rendered document.
+        replace_title (bool): Whether to overwrite the ``<title>`` with ``title``.
+
+    Returns:
+        None
+    """
+    template = read_text_file(template_path) if template_path and os.path.exists(template_path) else None
+    if template:
+        new = _apply_body_template(template, body_html, body_class, direction)
+    else:
+        new = _build_xhtml_document(body_html, title=title, body_class=body_class, direction=direction)
+    if replace_title:
+        new = _replace_title_in_string(new, title)
+    write_text_file(output_path, new)
 
 
 def _insert_document_section(
@@ -376,14 +434,7 @@ def _insert_document_section(
     # preserve the template shell/head and only replace the body content.
     tpl = os.path.join(xhtml_dir, template_filename)
     target = os.path.join(xhtml_dir, output_filename)
-    template = read_text_file(tpl) if os.path.exists(tpl) else None
-    if template:
-        new = _apply_body_template(template, body_html, body_class, direction)
-        new = _replace_title_in_string(new, label or label_default)
-        write_text_file(target, new)
-    else:
-        new = _build_xhtml_document(body_html, title=label or label_default, body_class=body_class, direction=direction)
-        write_text_file(target, new)
+    _render_document(tpl, body_html, label or label_default, body_class, direction, target, replace_title=True)
 
 
 def insert_frontmatter(xhtml_dir: str, spec: dict | None, meta_dir: str, image_dir: str, br_convert: bool = False) -> None:
@@ -422,13 +473,7 @@ def insert_caution(xhtml_dir: str, caution_text: str) -> None:
         return
     tpl = os.path.join(xhtml_dir, "p-caution.xhtml")
     body_html = f"<p>{caution_text}</p>"
-    template = read_text_file(tpl) if os.path.exists(tpl) else None
-    if template:
-        new = _apply_body_template(template, body_html, None, None)
-        write_text_file(tpl, new)
-    else:
-        new = _build_xhtml_document(body_html, title="caution", body_class=None, direction=None)
-        write_text_file(tpl, new)
+    _render_document(tpl, body_html, "caution", None, None, tpl, replace_title=False)
 
 
 def insert_colophon(xhtml_dir: str, colophon_spec: dict | None, meta_dir: str, meta: dict | None = None) -> None:
@@ -519,13 +564,7 @@ def insert_colophon(xhtml_dir: str, colophon_spec: dict | None, meta_dir: str, m
         body_class = colophon_spec.get("body_class")
 
     tpl = os.path.join(xhtml_dir, "p-colophon.xhtml")
-    template = read_text_file(tpl) if os.path.exists(tpl) else None
-    if template:
-        new = _apply_body_template(template, body_html, body_class, direction)
-        write_text_file(tpl, new)
-    else:
-        new = _build_xhtml_document(body_html, title="colophon", body_class=body_class, direction=direction)
-        write_text_file(tpl, new)
+    _render_document(tpl, body_html, "colophon", body_class, direction, tpl, replace_title=False)
 
 
 def insert_advertisement(xhtml_dir: str, adv_spec: dict | None, meta_dir: str, meta: dict | None = None) -> None:
@@ -573,13 +612,7 @@ def insert_advertisement(xhtml_dir: str, adv_spec: dict | None, meta_dir: str, m
     if not body_class and isinstance(adv_spec, dict):
         body_class = adv_spec.get("body_class")
 
-    template = read_text_file(tpl) if os.path.exists(tpl) else None
-    if template:
-        new = _apply_body_template(template, body_html, body_class, direction)
-        write_text_file(tpl, new)
-    else:
-        new = _build_xhtml_document(body_html, title="advertisement", body_class=body_class, direction=direction)
-        write_text_file(tpl, new)
+    _render_document(tpl, body_html, "advertisement", body_class, direction, tpl, replace_title=False)
 
 
 def insert_titlepage(xhtml_dir: str, meta: dict | None) -> None:
@@ -606,14 +639,7 @@ def insert_titlepage(xhtml_dir: str, meta: dict | None) -> None:
     body_class = meta.get("body_class") if isinstance(meta, dict) else None
 
     tpl = os.path.join(xhtml_dir, "p-titlepage.xhtml")
-    template = read_text_file(tpl) if os.path.exists(tpl) else None
-    if template:
-        new = _apply_body_template(template, body_html, body_class, direction)
-        new = _replace_title_in_string(new, book_title or "titlepage")
-        write_text_file(tpl, new)
-    else:
-        new = _build_xhtml_document(body_html, title=book_title or "titlepage", body_class=body_class, direction=direction)
-        write_text_file(tpl, new)
+    _render_document(tpl, body_html, book_title or "titlepage", body_class, direction, tpl, replace_title=True)
 
 
 def _replace_title_in_string(s: str, title: str) -> str:
@@ -690,13 +716,7 @@ def generate_chapter_xhtmls(xhtml_dir: str, chapters: list[str], br_convert: boo
             template = read_text_file(os.path.join(xhtml_dir, "p-001.xhtml"))
         else:
             template = None
-        if template:
-            new = _apply_body_template(template, body_html, body_class, direction)
-            new = _replace_title_in_string(new, label)
-            write_text_file(target_path, new)
-        else:
-            new = _build_xhtml_document(body_html, title=label, body_class=body_class, direction=direction)
-            write_text_file(target_path, new)
+        _render_document(template, body_html, label, body_class, direction, target_path, replace_title=True)
 
         created.append({"id": page_id, "href": f"xhtml/{filename}", "label": label})
 
@@ -1024,15 +1044,8 @@ def update_navigation(nav_path: str, chapters_info: list[dict]) -> None:
             + "\n".join(lines) +
             '\n</div>'
         )
-        template = read_text_file(toc_path) if os.path.exists(toc_path) else None
-        if template:
-            # p-toc.xhtml is the only page that must remain fixed to vertical writing mode.
-            new = _apply_body_template(template, toc_body, "p-toc", "Vertical")
-            new = _replace_title_in_string(new, "目次")
-            write_text_file(toc_path, new)
-        else:
-            new = _build_xhtml_document(toc_body, title="目次", body_class="p-toc", direction="Vertical")
-            write_text_file(toc_path, new)
+        # p-toc.xhtml is the only page that must remain fixed to vertical writing mode.
+        _render_document(toc_path, toc_body, "目次", "p-toc", "Vertical", toc_path, replace_title=True)
 
 
 def make_epub_from_template(tmpdir: str, out_epub: str) -> None:
