@@ -1,7 +1,9 @@
 """Shared fixtures for the yaml2epub regression test suite."""
+
 import importlib.util
 import os
 import sys
+from types import ModuleType
 
 import pytest
 
@@ -9,12 +11,18 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAMPLE_DIR = os.path.join(REPO_ROOT, "sample_yaml")
 META_PATH = os.path.join(SAMPLE_DIR, "metadata.yaml")
 
+# The entry script imports the real ``yaml2epub`` package (``from
+# yaml2epub.pipeline import main``), so the repo root must be importable
+# without installing the project.
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
-def _load_module(name: str, path: str) -> type:
-    """Load a top-level module from an explicit file path.
 
-    Loading by path avoids ambiguity with the empty ``yaml2epub/`` directory
-    that sits next to ``yaml2epub.py`` in the repo root.
+def _load_module(name: str, path: str) -> ModuleType:
+    """Load a module from an explicit file path under the given name.
+
+    Loading by path is used to import the ``yaml2epub.py`` entry script without
+    letting it shadow the ``yaml2epub/`` package that lives next to it.
     """
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader, f"cannot load module from {path}"
@@ -25,8 +33,10 @@ def _load_module(name: str, path: str) -> type:
 
 
 @pytest.fixture(scope="session")
-def module() -> type:
-    return _load_module("yaml2epub", os.path.join(REPO_ROOT, "yaml2epub.py"))
+def module() -> ModuleType:
+    # Loaded under an alias so it does not clobber the ``yaml2epub`` package
+    # that the entry script imports from.
+    return _load_module("yaml2epub_cli", os.path.join(REPO_ROOT, "yaml2epub.py"))
 
 
 @pytest.fixture(scope="session")

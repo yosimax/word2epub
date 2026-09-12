@@ -3,12 +3,12 @@
 These tests lock the current (correct) behavior so future refactoring cannot
 silently regress the produced EPUB package.
 """
+
 import os
 import re
 import zipfile
 
 import pytest
-
 from conftest import REPO_ROOT
 
 
@@ -37,13 +37,15 @@ def _read_entry(z: zipfile.ZipFile, name: str) -> str:
 
 
 def _spine_ids(z: zipfile.ZipFile) -> list[str]:
-    spine = re.search(r"<spine[^>]*>(.*?)</spine>", _read_entry(z, "item/standard.opf"), re.S)
+    spine = re.search(
+        r"<spine[^>]*>(.*?)</spine>", _read_entry(z, "item/standard.opf"), re.S
+    )
     assert spine, "spine not found in manifest"
     ids = []
     for ref in re.findall(r"<itemref[^>]*>", spine.group(1)):
         for part in ref.split():
             if part.startswith("idref="):
-                ids.append(part[len("idref="):].strip('"'))
+                ids.append(part[len("idref=") :].strip('"'))
     return ids
 
 
@@ -131,8 +133,13 @@ def test_stylesheet_injected(z):
 
 
 def test_images_present(z):
-    for img in ("cover.png", "back_cover.png", "sample_textmap.jpg",
-                "sample_textmap1.jpg", "sample_textmap2.jpg"):
+    for img in (
+        "cover.png",
+        "back_cover.png",
+        "sample_textmap.jpg",
+        "sample_textmap1.jpg",
+        "sample_textmap2.jpg",
+    ):
         assert f"item/image/{img}" in z.namelist()
 
 
@@ -158,6 +165,7 @@ def test_container_points_to_opf(z):
 
 def test_all_xhtml_wellformed_xml(z):
     import xml.etree.ElementTree as ET
+
     for name in z.namelist():
         if name.endswith(".xhtml"):
             ET.fromstring(z.read(name))  # raises on malformed XML
@@ -165,11 +173,16 @@ def test_all_xhtml_wellformed_xml(z):
 
 def test_no_template_images_leaked(z):
     # template-provided images must be cleaned up and replaced by user images
-    leaked = [n for n in z.namelist() if n.startswith("item/image/") and n.endswith(("img", "ad", "gaiji", "kuchie", "logo"))]
+    leaked = [
+        n
+        for n in z.namelist()
+        if n.startswith("item/image/")
+        and n.endswith(("img", "ad", "gaiji", "kuchie", "logo"))
+    ]
     assert leaked == []
 
 
 def test_vertical_direction_applied(z):
     # synopsis chapter is Vertical; html class must reflect writing-mode
     body = _read_entry(z, "item/xhtml/p-001.xhtml")
-    assert 'writing-mode: vertical-rl' in body or 'class="vrtl"' in body
+    assert "writing-mode: vertical-rl" in body or 'class="vrtl"' in body
