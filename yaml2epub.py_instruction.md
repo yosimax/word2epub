@@ -105,5 +105,26 @@ p-ad-001.xhtml        : 8.広告
 p-backcover.xhtml     : 9.表紙
 ```
 
+* 生成された XHTML は、テンプレート側の既存 `<head>` と `<link rel="stylesheet">` を保持したまま、`body` の中身だけを差し換える。`stylesheets` が指定された場合は既存の link を削除せず、必要な link を追加する。
+* `direction` の指定がある場合、`<html>` の `class` と `<body>` の `style` はその値に合わせて補正し、`Vertical` / `Horizontal` の乖離をなくす。
+  * 目次 `p-toc.xhtml` は例外で縦書き固定
+
 * プログラムについて
   * pythonスクリプトは適宜lib化して保守性が良くなるようなプログラム構造としてください。
+  * 実装は `yaml2epub/` パッケージ(`epub/`, `metadata/`, `utils/`)に分割。ルートの `yaml2epub.py` は CLI ラッパーのみ。
+  * EPUB3準拠の拠り所である、book-template配下は一切変更しないでください。
+
+
+* 作成したテスト 2026/08/22 (OpenCode + Ornith-1.5-9B-Q4_K_M.gguf / llama.cpp )
+  * tests/conftest.py — フィクスチャ（module モジュールロード、sample_dir、meta_path）、main() 呼び出し用の module_main
+  * tests/test_e2e.py — 15件 end-to-end（sample_yaml → EPUB 生成後検証）
+  * tests/test_units.py — 22件 単体ヘルパ（_compute_style_value、_normalize_legacy_metadata、update_navigation、例外スワロウ明示化の回帰テスト）
+  * pyproject.toml に [tool.pytest.ini_options]（testpaths=tests）追加、venv に pytest 導入
+* テストが網羅する挙動
+  * EPUB パッケージ構造: mimetype先頭+非圧縮, manifest↔spine整合, spine順序, nav/landmarks
+  * 機能: colophonのJinja2レンダリング（{{ book_title }}展開・NOW_YMD展開・copyright）、章ラベル、広告排除（NONE）、スタイル注入、画像、backcover、目次、縦書き方向、template画像の除去、XMLの健全性
+* 検証済み
+  * 全テスト実行で安定（37 passed: e2e15 + unit22）
+  * 回帰検知能力を確認: spine順序を意図的に壊すと test_spine_order が失敗（ソース復元後全パスに戻る）
+* 実行方法
+`.venv/bin/python -m pytest`

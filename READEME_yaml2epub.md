@@ -43,9 +43,12 @@ contents: |
 
 **実装されている機能**
 - **テンプレートベース生成**: `TEMPLATE/book-template` の中身をコピーして出力用ディレクトリを作成。
-- **タイトル反映**: XHTML テンプレート内の `<title>` をメタデータのタイトルで置換。
+- **目次**: p-toc.xhtml は例外で縦書き固定
+- **タイトル反映**: XHTML テンプレート内の既存 `<title>...</title>` を、メタデータの `book_title` / `title` で置換。テンプレートの `<title>` タグ自体を削除せず、内容だけを差し替える。
 - **表紙・裏表紙画像取り込み**: `image.cover` / `image.backcover` を `item/image/` にコピーし、対応する XHTML の `src` を更新。
 - **本文挿入（章）**: YAML/HTML/プレーンテキストの章ファイルを読み、段落（空行区切り）を XHTML に変換して任意の数の章を生成。
+- **ディレクション反映**: YAML の `direction` が `Vertical` / `Horizontal` なら、生成 XHTML の `html` 要素に `class="vrtl"` / `class="hltr"` を付与し、`body` の `style` に `writing-mode` を設定する。
+- **スタイルシート連携**: `metadata.yaml` の `stylesheets` に記載された CSS を `item/style/` にコピーし、該当 XHTML へ `<link rel="stylesheet" ...>` を追加。OPF の manifest へも CSS 項目を追加する。
 - **前付・注意書き・奥付・広告**: `frontmatter` / `caution` / `colophon` / `advertisement` をテンプレートの該当ページに挿入。
 - **OPF の動的更新**: 画像、XHTML、nav を走査して `standard.opf` の manifest と spine を再構築。
 - **目次更新**: `navigation-documents.xhtml` と `p-toc.xhtml` を生成・更新して章一覧を反映。
@@ -78,6 +81,7 @@ contents: |
 - `series_title` : シリーズ名（任意）。
 - `creator01`, `creator02` : 著者名や協力者（OPF の `dc:creator` に反映）。
 - `publisher` : 出版社（OPF の `dc:publisher` に反映）。
+- `stylesheets` : 追加したい CSS のリスト。`metadata.yaml` 側で指定すると、各 XHTML に `<link rel="stylesheet" ...>` を追加し、`item/style/` に CSS をコピーして OPF の manifest へも `text/css` 項目を追加する。
 - `image` (マップ): 画像ファイル指定。
   - `cover`: 表紙画像パス（例: `images/cover.jpg`）
   - `backcover`: 裏表紙画像パス
@@ -86,6 +90,8 @@ contents: |
   - `contents`: 章のリスト。各要素は文字列（章ファイルパス）かオブジェクト（例: `{ chapter: "chapter001.yaml" }`）
 - 各章ファイル（例: `chapter001.yaml`）:
   - YAML フォーマット: `page_title`（任意）と `contents`（複数段落は空行で区切る）
+  - `direction`: `Vertical` または `Horizontal` を記載すると、生成 XHTML の `html` クラスを `vrtl` / `hltr` にし、`body` の `writing-mode` を設定する。
+  - `body_class`: 生成される `<body>` の `class` を上書きしたい場合に利用する。
   - もしくは HTML/XHTML/プレーンテキストファイルを直接指定可能
 - `caution` : 注意書きテキスト（文字列）。テンプレートの `p-caution.xhtml` に挿入されます。
 - `colophon` : 奥付指定（オブジェクトまたは文字列パス）。
@@ -96,6 +102,7 @@ contents: |
 - 自動生成される項目:
   - OPF の `dc:identifier` は自動的に `urn:uuid:...` を生成して置換されます。
   - OPF の `dcterms:modified` は現在の UTC 時刻で更新されます。
+  - テンプレートに既存の `<title>` があれば、`book_title` または `title` 値で差し替える。テンプレート自体からタイトル要素を削除するのではなく、内容のみ置き換える。
 
 ## セットアップ
 以下はこのリポジトリで再現可能な開発環境を作るための手順です。`requirements.txt` / `requirements-dev.txt` と `pyproject.toml` がルートにあります。
