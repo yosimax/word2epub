@@ -5,7 +5,7 @@ YAML → EPUB3 変換スクリプト。ルートの `yaml2epub.py` は薄い CLI
 ## 最重要: 入口と構造
 - CLI 入口はルートの `yaml2epub.py`。これは `yaml2epub.pipeline.main()` を呼ぶだけの薄いラッパー。
 - 実装パッケージは `yaml2epub/`(`epub/`, `metadata/`, `utils/`)。ユニットテストはパッケージを直接 import する。e2e は従来どおりルート `yaml2epub.py` をファイルパスからロードして `main()` を呼ぶ。
-- 出力は `TEMPLATE/book-template` をコピペして書き換える方式。`TEMPLATE/book-template` の中身は一切**変更禁止**(`yaml2epub.py_instruction.md` 参照)。
+- 出力は `TEMPLATE/book-template` をコピペして書き換える方式。`TEMPLATE/book-template` の中身は一切**変更禁止**（テンプレート構造・ページ順序は `READEME_yaml2epub.md` の「テンプレート構造とページ順序」節参照）。
 
 ## 開発コマンド
 - 実行: `python yaml2epub.py metadata.yaml [out.epub]`（out省略→`out.epub`）。
@@ -17,6 +17,7 @@ YAML → EPUB3 変換スクリプト。ルートの `yaml2epub.py` は薄い CLI
 ## 環境
 - `.venv` あり、Python 3.14（`.python-version`）。ランタイム依存: PyYAML必須、jinja2 オプション(colophon テンプレート用)、lxml オプション。
 - `noshared/` は gitignore 対象の個人物（別プロジェクト等）。作業対象外。
+- `TEMPLATE/book-template` も **git 管理外**（`.gitignore` の `book-template` パターン）。ローカル資産であり、テスト・実行にはローカルに存在することが前提。
 
 ## 規約（`.github/copilot-instructions.md`）
 - レビュー・コメントは日本語。ソース内コメントは**英語＋日本語両方**。
@@ -26,3 +27,6 @@ YAML → EPUB3 変換スクリプト。ルートの `yaml2epub.py` は薄い CLI
 ## 既知の挙動・フック
 - `_normalize_legacy_metadata`（`yaml2epub/metadata/__init__.py`）でレガシーキーを正規化: `seriestitle`→`series_title`、`specialthanks`→`special_thanks`、`book_title`/`title` 相互。古い spec の YAML を流用する際は必須。
 - 詳細な YAML フィールド・機能一覧は `READEME_yaml2epub.md` 参照（このファイルには載せない）。
+
+## リファクタリング履歴
+- 単一ファイル→パッケージ化のリファクタリングは**完了**し main にマージ済み(PR #8)。実施内容は `REFACTORING_DONE.md` 参照。WIP 文書が未コミットで残っていることはない。

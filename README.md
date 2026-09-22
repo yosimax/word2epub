@@ -1,28 +1,16 @@
-# ~~word2epub~~
+# ~~word2epub~~ 改め yaml2epub
 
-~~Simple tool to convert Word HTML (saved from Word) into EPUB3.~~
+YAML → EPUB3 変換ツール `yaml2epub.py`。`TEMPLATE/book-template` をベースに、`metadata.yaml` と文書ファイルから日本語縦書き・リフロー対応の EPUB3（zip）を生成する。
 
-~~Usage:~~
+> 履歴: このリポジトリは当初 Word HTML → EPUB3 変換ツールだった。アプローチの見直しで YAML から生成する `yaml2epub.py` が正となった（旧スクリプトは削除済み）。
 
-- ~~With explicit metadata file:~~
-
+**使い方**
 ```
-python word_html_to_epub.py input.html output.epub sample/metadata.yaml
+python yaml2epub.py metadata.yaml [out.epub]
 ```
+- 引数: `metadata.yaml` — メタデータファイル（必須）、`out.epub` — 出力ファイル名（省略時は `out.epub`）
+- サンプル入力一式は `sample_yaml/` にある。
 
-- ~~Auto-detect metadata (script searches `metadata.yaml` next to `input.html` or in current directory):~~
-
-```
-python word_html_to_epub.py sample/sampleBook.htm sample/out.epub
-```
-
-~~Notes:~~
-- ~~`metadata.yaml` is required for auto-detection; you can pass an explicit metadata path as the 3rd argument.~~
-- ~~Images referenced in metadata are included in the EPUB manifest; missing files are skipped with a warning.~~
-- ~~This tool is a script I created using an AI Agent to generate EPUB3 files with Japanese vertical text and reflow support for personal use. The AI Agent uses Microsoft Copilot (free version) and GitHub Copilot Free.~~
-  - ~~It is fixed to vertical writing.~~
-
-
-I determined that converting from MS Word format to EPUB3 was not the appropriate approach, so I switched to `yaml2epub.py`, which generates EPUB3 files from YAML files instead.
-
-MS-Word形式からのEPUB3ファイルに変換するのは筋が悪そうなので止めた。yamlファイルからEPUB3ファイルを生成する、yaml2epub.pyに変更した。
+**詳細**
+- YAML フィールド一覧・機能・制約・セットアップ: [READEME_yaml2epub.md](READEME_yaml2epub.md)
+- 開発・テスト・リファクタリング履歴: [AGENTS.md](AGENTS.md) / [REFACTORING_DONE.md](REFACTORING_DONE.md)
